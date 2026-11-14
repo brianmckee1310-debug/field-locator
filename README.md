@@ -1,48 +1,68 @@
 # Field Locator
 
-A small offline web app that shows where you're standing on a georeferenced PDF site plan.
+An offline web app for field work on sites where the only reference is a map: it shows where you are
+standing on your own site plan, and lets you pin, draw, measure and record on top of it.
 
-Built for field ecology / restoration work on sites that are bare dirt with no landmarks —
-where the only reference is a PDF plan.
+Live: https://brianmckee1310-debug.github.io/field-locator/
 
 ## What it does
 
-- Reads the georeferencing embedded in a **GeoPDF** (the `/VP` `/Measure` block that ArcGIS
-  writes when "Export Map Georeference Information" is ticked)
-- Renders the plan and plots your GPS position on it, with an accuracy circle
-- Pinch/pan/zoom, feet or metres, scale bar, off-map distance warning
-- **Fully offline** once installed — map, code and the PDF importer are all cached
-- Everything stays on the phone. No uploads, no accounts, no network calls.
+- **Maps from anything.** Georeferenced PDFs (GeoPDF) work straight away. Any other PDF, image or
+  screenshot is placed on the ground with pins. Free USGS aerial imagery can be downloaded for any US site.
+- **Your position** on the map, with accuracy circle, heading, off-map warning and a scale bar.
+- **Drawing tools**: pins, lines, areas, freehand, rectangles, circles, arrows, text and a measure tool,
+  with live lengths and areas. Points can be dropped at your GPS position, so you can walk a boundary.
+- **Layers**: Management Notes, Inventory, Sampling and Trials by default, plus your own.
+- **Breadcrumb trails** at an interval you choose.
+- **Exports**: CSV, KML, GeoJSON, GPX, a picture of the map with drawings, and a `.fieldmap` site file
+  that carries the map, drawings and trails to another device or person.
+- **Offline**: once opened, everything is cached. Maps and data stay on the device.
 
-## Use
+## Calibration
 
-Open the site, "Add map from PDF", pick a georeferenced PDF. Then tap the map to locate.
+Each pin ties a spot on the image to a latitude and longitude, either by standing there or by typing
+coordinates. Two pins make the map live. The fit is a similarity transform (uniform scale, rotation,
+shift), solved by least squares in a local metre frame, which stays stable with noisy GPS pins. From
+three pins the app reports each pin's error; from four it can tell which pin disagrees, and an optional
+"stretch fix" switches to a full affine fit for scans that are not true to scale.
 
-On a phone: open in the browser → Share → **Add to Home Screen** for offline use.
-
-## How the georeferencing works
-
-The PDF carries four corner points as lat/lon (`/GPTS`) paired to fractional positions within
-the map frame (`/LPTS`), plus the frame's bounding box in PDF points (`/BBox`). The app fits a
-least-squares affine transform from (lon, lat) to image pixels over those four points, which
-tolerates slight rotation or skew.
-
-Ground scale is derived from local metre-per-degree values rather than a spherical earth
-approximation — verified against the test plan's own printed graphic scale bar to within 0.08%.
-
-## Accuracy
-
-Phone GPS is roughly ±10–30 ft under open sky, worse near equipment or treelines. The
-georeferencing itself contributes well under a metre. Good for "which outlot am I in",
-not for staking boundaries.
+GeoPDFs are read directly: the `/VP` `/Measure` block gives four corner coordinates (`/GPTS`) and the
+map frame (`/BBox`), fitted with an affine transform.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `index.html` | Shell and styles |
-| `app.js` | Canvas renderer, GPS, gestures, map library, PDF import |
-| `geo.js` | GeoPDF extraction and geo maths |
-| `store.js` | IndexedDB map library |
-| `sw.js` | Service worker — offline caching |
-| `pdf*.mjs` | pdf.js, for rendering imported PDFs |
+| `index.html`, `app.css` | Shell and styles |
+| `app.js` | Library, imports, map view, gestures, GPS, menu, embed API |
+| `tools.js` | Drawing tools, selection and editing, layers, undo |
+| `calib.js` | Pin calibration |
+| `track.js` | Breadcrumb trails |
+| `io.js` | Exports, site files |
+| `aerial.js` | USGS aerial download |
+| `geo.js` | GeoPDF extraction, transforms, geometry |
+| `store.js`, `state.js`, `ui.js` | Storage, shared state, UI helpers |
+| `sw.js` | Offline caching. Bump `CACHE` on every release. |
+
+## Data model
+
+- Store `maps`: `{id, name, blob, imgW, imgH, ctrl:[{px,py,lat,lon}], fit, geoSrc, origCtrl, thumb, site}`
+- Store `data` (same id): `{layers:[{id,name,color,visible}], features:[...], tracks:[...], activeLayer}`
+- Feature: `{id, type: point|line|polygon|circle|text, layer, name, note, pts:[[x,y]], r, text, size,
+  color, width, fill, dash, arrow, gps:{lat,lon,acc}, t, link}`. Geometry is stored in image pixels
+  and converted to coordinates on export, so drawings stay put on the map if calibration changes.
+- Track: `{id, name, color, visible, pts:[[lat,lon,time,acc]], start, end}`
+
+## Embedding (for the FQA app merge)
+
+`window.FieldLocator` exposes `listMaps()`, `getSite(mapId)`, `toGeoJSON(mapId)`, `open(mapId)` and
+`on('open'|'close'|'change', fn)`. When run inside an iframe the same events are posted to the parent as
+`{source:'field-locator', type, mapId}`. Maps carry an optional `site` field and features an optional
+`link` field, reserved for tying them to FQA sites and records.
+
+## Accuracy
+
+Phone GPS is roughly ±10 to 30 ft in the open and worse under canopy or near equipment. Good for
+"which unit am I in" and mapping patches; not for staking boundaries.
+
+Aerial imagery: USGS The National Map / USDA NAIP, public domain.

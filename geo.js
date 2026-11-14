@@ -156,3 +156,81 @@ function scan(txt, pageHeightPt){
   results.sort((a,b)=>b.area-a.area);
   return results[0];
 }
+
+/* ================= v3: control-point transforms =================
+   ctrl = [{px,py,lat,lon}]  (image pixels <-> WGS84)
+   Works in a local metre frame centred on the control points, so the
+   numbers stay well conditioned and the inverse is a plain 2x2.        */
+export function fitTransform(ctrl, mode='similarity'){
+  const n = ctrl ? ctrl.length : 0;
+  if(n < 2) return null;
+  const lat0 = ctrl.reduce((s,c)=>s+c.lat,0)/n, lon0 = ctrl.reduce((s,c)=>s+c.lon,0)/n;
+  const md = mPerDeg(lat0), mx = md.lon, my = md.lat;
+  const P = ctrl.map(c=>({u:(c.lon-lon0)*mx, v:-(c.lat-lat0)*my, x:c.px, y:c.py}));
+  let A,B,C,D,E,F, type = mode;
+  if(mode==='affine' && n>=3){
+    const N=[[0,0,0],[0,0,0],[0,0,0]], bx=[0,0,0], by=[0,0,0];
+    for(const p of P){ const w=[p.u,p.v,1];
+      for(let i=0;i<3;i++){ for(let j=0;j<3;j++) N[i][j]+=w[i]*w[j]; bx[i]+=w[i]*p.x; by[i]+=w[i]*p.y; } }
+    const X=solve3(N.map(r=>[...r]),bx), Y=solve3(N.map(r=>[...r]),by);
+    if(X&&Y){ [A,B,C]=X; [D,E,F]=Y; } else type='similarity';
+  } else type='similarity';
+  if(type==='similarity'){
+    const ub=P.reduce((s,p)=>s+p.u,0)/n, vb=P.reduce((s,p)=>s+p.v,0)/n,
+          xb=P.reduce((s,p)=>s+p.x,0)/n, yb=P.reduce((s,p)=>s+p.y,0)/n;
+    let sa=0,sb=0,den=0;
+    for(const p of P){ const du=p.u-ub,dv=p.v-vb,dx=p.x-xb,dy=p.y-yb;
+      sa+=du*dx+dv*dy; sb+=du*dy-dv*dx; den+=du*du+dv*dv; }
+    if(den<1e-9) return null;                      // pins on the same ground spot
+    const a=sa/den, b=sb/den;
+    A=a; B=-b; C=xb-a*ub+b*vb; D=b; E=a; F=yb-b*ub-a*vb;
+  }
+  const det=A*E-B*D;
+  if(!isFinite(det) || Math.abs(det)<1e-12) return null;
+  const toPix=(lat,lon)=>{ const u=(lon-lon0)*mx, v=-(lat-lat0)*my; return {x:A*u+B*v+C, y:D*u+E*v+F}; };
+  const toLocal=(x,y)=>({ u:(E*(x-C)-B*(y-F))/det, v:(-D*(x-C)+A*(y-F))/det });   // metres east, metres south
+  const toGeo=(x,y)=>{ const l=toLocal(x,y); return {lat:lat0-l.v/my, lon:lon0+l.u/mx}; };
+  const mPerPx=1/Math.sqrt(Math.abs(det));
+  const residuals=ctrl.map(c=>{ const p=toPix(c.lat,c.lon); return Math.hypot(p.x-c.px,p.y-c.py)*mPerPx; });
+  const dof = type==='affine' ? n-3 : n-2;
+  const rms = dof>0 ? Math.sqrt(residuals.reduce((s,r)=>s+r*r,0)/n) : null;
+  let spreadPx=0; for(let i=0;i<n;i++) for(let j=i+1;j<n;j++)
+    spreadPx=Math.max(spreadPx,Math.hypot(ctrl[i].px-ctrl[j].px,ctrl[i].py-ctrl[j].py));
+  return { type, n, lat0, lon0, toPix, toLocal, toGeo, mPerPx, residuals, rms, spreadPx,
+           flipped: det<0, rotation: Math.atan2(D,A)/D2R };
+}
+
+/* geometry helpers in local metres (pts = [{u,v}]) */
+export function pathLength(pts, closed=false){
+  let d=0; for(let i=1;i<pts.length;i++) d+=Math.hypot(pts[i].u-pts[i-1].u, pts[i].v-pts[i-1].v);
+  if(closed && pts.length>2) d+=Math.hypot(pts[0].u-pts[pts.length-1].u, pts[0].v-pts[pts.length-1].v);
+  return d;
+}
+export function polyArea(pts){
+  let a=0; for(let i=0;i<pts.length;i++){ const p=pts[i], q=pts[(i+1)%pts.length]; a+=p.u*q.v-q.u*p.v; }
+  return Math.abs(a)/2;
+}
+/* Web Mercator */
+const RM=6378137;
+export const mercX = lon => RM*lon*D2R;
+export const mercY = lat => RM*Math.log(Math.tan(Math.PI/4+lat*D2R/2));
+export const mercLon = x => x/RM/D2R;
+export const mercLat = y => (2*Math.atan(Math.exp(y/RM))-Math.PI/2)/D2R;
+
+/* parse "42.0067, -88.2059", "42.0067 N 88.2059 W", or D M S forms */
+export function parseLatLon(str){
+  if(!str) return null;
+  const s=str.toUpperCase();
+  const ns=(s.match(/-?\d+(?:\.\d+)?/g)||[]).map(Number);
+  if(![2,4,6].includes(ns.length)) return null;
+  const h=ns.length/2, hemis=(s.match(/[NSEW]/g)||[]);
+  const dec=g=>{ const v=Math.abs(g[0])+(g[1]||0)/60+(g[2]||0)/3600; return g[0]<0||Object.is(g[0],-0)?-v:v; };
+  let a=dec(ns.slice(0,h)), b=dec(ns.slice(h));
+  let ha=hemis[0]||'', hb=hemis[1]||'';
+  if(hemis.length===1){ if(/[EW]/.test(ha)){ hb=ha; ha=''; } }
+  if(ha==='S'||ha==='W') a=-Math.abs(a);
+  if(hb==='S'||hb==='W') b=-Math.abs(b);
+  if(/[EW]/.test(ha) || /[NS]/.test(hb)) [a,b]=[b,a];
+  if(!isFinite(a)||!isFinite(b)||Math.abs(a)>90||Math.abs(b)>180) return null;
+  return {lat:a, lon:b};
+}
