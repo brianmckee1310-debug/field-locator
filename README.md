@@ -11,7 +11,9 @@ Live: https://brianmckee1310-debug.github.io/field-locator/
   screenshot is placed on the ground with pins. Free USGS aerial imagery can be downloaded for any US site.
 - **Multi-sheet sites.** Pick several georeferenced PDFs at once, or one PDF with several map pages,
   and they are cut to their own map frames and joined into a single continuous map. No matchlines
-  needed: each sheet is placed by its own coordinates.
+  needed: each sheet is placed by its own coordinates. A key or inset drawn inside a sheet's frame
+  can be boxed out, sheets can be turned off, and the map rebuilt at another quality -- drawings are
+  carried across through ground coordinates, so nothing moves.
 - **Your position** on the map, with accuracy circle, heading, off-map warning and a scale bar.
 - **Drawing tools**: pins, lines, areas, freehand, rectangles, circles, arrows, text and a measure tool,
   with live lengths and areas. Points can be dropped at your GPS position, so you can walk a boundary.
@@ -48,14 +50,17 @@ footer and margin legend exact rather than a guess.
 | `aerial.js` | USGS aerial download |
 | `geo.js` | GeoPDF extraction, transforms, geometry |
 | `mosaic.js` | Multi-sheet sites: neatline crop and reprojection into one raster |
+| `sheets.js` | Sheets panel, masking a key, rebuilding a combined map |
 | `store.js`, `state.js`, `ui.js` | Storage, shared state, UI helpers |
 | `sw.js` | Offline caching. Bump `CACHE` on every release. |
 
 ## Data model
 
 - Store `maps`: `{id, name, blob, imgW, imgH, ctrl:[{px,py,lat,lon}], fit, geoSrc, origCtrl, thumb, site}`
-  - a combined map also carries `sheets:[{name,file,page,crop,w,h,masks}]` and
-    `mosaic:{mPerPx,latMin,latMax,lonMin,lonMax,budgetMP}`, so it can be rebuilt or re-cropped later
+  - a combined map also carries `sheets:[{name,file,page,scale,w,h,crop,ctrl,masks,visible}]`,
+    `sources:[{name,blob}]` (the original PDFs, so it can be rebuilt without them being re-picked)
+    and `mosaic:{mPerPx,latMin,latMax,lonMin,lonMax,budgetMP,trimPt,W,H}`.
+    `sources` is deliberately left out of the `.fieldmap` export.
 - Store `data` (same id): `{layers:[{id,name,color,visible}], features:[...], tracks:[...], activeLayer}`
 - Feature: `{id, type: point|line|polygon|circle|text, layer, name, note, pts:[[x,y]], r, text, size,
   color, width, fill, dash, arrow, gps:{lat,lon,acc}, t, link}`. Geometry is stored in image pixels

@@ -1,5 +1,6 @@
 import { extractGeo, geoScanner, fitTransform, dist } from './geo.js';
 import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers } from './mosaic.js';
+import { initSheets } from './sheets.js';
 import { listMaps, getMap, putMap, deleteMap, getData, putData } from './store.js';
 import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS, orderLayers } from './state.js';
 import { $, h, clamp, uid, toast, sheet, closeSheet, sheetOpen, dialog, fmtLen, fmtLL } from './ui.js';
@@ -152,6 +153,12 @@ function siteName(files){
   return base.slice(0,60);
 }
 
+A.renderPage=(doc,pn,o)=>renderPage(doc,pn,o);
+A.pdfDoc=async function(blob){
+  const pdfjs=await import('./pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc='./pdf.worker.min.mjs';
+  return pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
+};
 async function loadPDF(file){
   const bytes=new Uint8Array(await file.arrayBuffer());
   const pdfjs=await import('./pdf.min.mjs');
@@ -161,10 +168,10 @@ async function loadPDF(file){
 }
 /* rotation:0 keeps canvas pixels a plain multiple of PDF points, which is what
    the /BBox neatline and the LPTS corners are measured in */
-async function renderPage(doc, pn, {maxPx=12e6, maxDim=4200, unrotated=false}={}){
+async function renderPage(doc, pn, {maxPx=12e6, maxDim=4200, unrotated=false, scale:fixed=null}={}){
   const page=await doc.getPage(pn);
   const vw=page.view, wPt=vw[2]-vw[0], hPt=vw[3]-vw[1];
-  const scale=Math.min(maxDim/Math.max(wPt,hPt), Math.sqrt(maxPx/(wPt*hPt)));
+  const scale=fixed || Math.min(maxDim/Math.max(wPt,hPt), Math.sqrt(maxPx/(wPt*hPt)));
   const vp=page.getViewport(unrotated?{scale,rotation:0}:{scale});
   const c=document.createElement('canvas');
   c.width=Math.round(vp.width); c.height=Math.round(vp.height);
@@ -302,9 +309,18 @@ async function combineFlow(files, skipped=0, pre=null){
     const rec=await A.addMapFromCanvas(cv,{
       name: base || 'Site map', ctrl, fit:'affine', geoSrc:'mosaic',
       extra:{ sheets: keep.map(p=>({ name:p.e.name, file:p.e.L.file.name, page:p.e.pn,
-                                     crop:p.crop, w:p.w, h:p.h, masks:[] })),
+                                     scale:p.scale, w:p.w, h:p.h, crop:p.crop, masks:[], visible:true,
+                                     ctrl:p.e.geo.pts.map(q=>({
+                                       px:(p.e.geo.framePt.x+q.lx*p.e.geo.framePt.w)*p.scale,
+                                       py:(p.e.geo.framePt.y+q.ly*p.e.geo.framePt.h)*p.scale,
+                                       lat:q.lat, lon:q.lon })) })),
+              /* the originals ride along so sheets can be re-cropped, masked and
+                 rebuilt later without asking for the files again. They are left
+                 out of the .fieldmap export, which picks its fields explicitly. */
+              sources: [...new Set(keep.map(p=>p.e.L))].map(L=>({name:L.file.name, blob:L.file})),
               mosaic:{ mPerPx:plan.mPerPx, latMin:plan.latMin, latMax:plan.latMax,
-                       lonMin:plan.lonMin, lonMax:plan.lonMax, budgetMP:choice } }});
+                       lonMin:plan.lonMin, lonMax:plan.lonMax, budgetMP:choice,
+                       trimPt:TRIM_PT, W:plan.W, H:plan.H } }});
     cv.width=cv.height=1;
     A.busyOff();
     await renderLib();
@@ -646,6 +662,8 @@ function menu(){
   const lab=h('button',{class:'tog'+(S.set.labels?' on':''),onclick:()=>{ S.set.labels=!S.set.labels; lab.classList.toggle('on',S.set.labels); saveSet(); render(); }});
   sheet(S.map.name, h('div',{},
     row('share','Export and share','CSV, KML, GeoJSON, GPX, image, site file',()=>A.exportSheet()),
+    S.map.sheets&&S.map.sheets.length?row('layers','Sheets',
+      `${S.map.sheets.length} joined \u00b7 hide a key, rebuild`,()=>A.openSheets()):null,
     row('calib','Calibrate',calTxt,()=>{ closeSheet(); A.enterCalib(); }),
     row('track','Breadcrumb trails',`${S.data.tracks.length} saved`,()=>A.trackSheet()),
     S.xf?row('globe','Get aerial of this area','Free USGS imagery, saved for offline',()=>A.aerialSheet(true)):null,
@@ -678,7 +696,7 @@ window.FieldLocator={
 };
 
 /* ===================== boot ===================== */
-initTools(); initCalib(); initTrack(); initIO(); initAerial();
+initTools(); initCalib(); initTrack(); initIO(); initAerial(); initSheets();
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,260));
 document.addEventListener('gesturestart',e=>e.preventDefault());

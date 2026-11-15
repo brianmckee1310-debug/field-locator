@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.3';
+export const VERSION = '3.4';
 
 export const S = {
   map:null,            // current map record
@@ -11,6 +11,7 @@ export const S = {
   fix:null,            // latest GPS fix {lat,lon,acc,heading,t}
   follow:false,
   tool:'select',
+  maskMode:false,      // dragging a box to hide a key on one sheet
   sel:null,            // selected feature id
   mode:'map',          // 'map' | 'calib'
   set:{ units:'ft', labels:true, interval:30, saver:false, wake:true,

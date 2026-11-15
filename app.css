@@ -352,3 +352,7 @@ select.inp option{background:#1a221b}
 .frow .fn{flex:1 1 auto;min-width:122px}
 .frow .fs{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   padding-left:4px}
+
+/* a sheet that has been turned off in the Sheets panel */
+.row.dim{opacity:.5}
+.row.dim .r1{text-decoration:line-through;text-decoration-thickness:1px}

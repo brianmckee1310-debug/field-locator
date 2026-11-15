@@ -333,6 +333,7 @@ A.toolUp=function(ip){
   if(draft&&draft.a){
     const a=draft.a, b=draft.b, d=Math.hypot(b.x-a.x,b.y-a.y)*S.view.s, t=draft.tool;
     if(d<10){ draft=null; A.render(); toast('Drag to draw'); return; }
+    if(t==='rect' && S.maskMode){ draft=null; A.render(); A.addMask(a,b); return; }
     if(t==='rect') create({type:'polygon',pts:[[a.x,a.y],[b.x,a.y],[b.x,b.y],[a.x,b.y]]},'polygon');
     else if(t==='circle') create({type:'circle',pts:[[a.x,a.y]],r:Math.hypot(b.x-a.x,b.y-a.y)});
     else create({type:'line',pts:[[a.x,a.y],[b.x,b.y]],arrow:true},'arrow');
@@ -376,6 +377,7 @@ function setTool(id){
     if((draft.tool==='line'&&draft.pts.length>=2)||(draft.tool==='polygon'&&draft.pts.length>=3)){ finishDraft(); if(id==='select') return; }
   }
   draft=null; hoverPt=null; drag=null; moveMode=false;
+  if(id!=='rect') S.maskMode=false;      // picking another tool leaves mask mode
   S.tool=id; if(id!=='select'){ S.sel=null; selV=null; }
   syncDock(); histButtons(); refreshCtx(); A.render();
 }
@@ -427,6 +429,10 @@ function refreshCtx(){
     if(gpsOK) btns.push(cbtn('gps','At my location',addGpsVertex,'pri'));
   } else if(t==='text'){ t1='Tap where the text goes'; t2=layerName(); }
   else if(t==='free'){ t1='Drag to draw'; t2='Two fingers to move the map'; }
+  else if(t==='rect' && S.maskMode){
+    t1='Drag a box over the key'; t2='It is cut out of that sheet when you rebuild';
+    btns.push(cbtn('x','Cancel',()=>A.exitMask(),''));
+  }
   else if(t==='rect'||t==='circle'||t==='arrow'){ t1=`Drag to draw ${t==='arrow'?'an arrow':t==='rect'?'a rectangle':'a circle'}`; t2='Two fingers to move the map'; }
   else {
     const n=draft&&draft.pts?draft.pts.length:0, need=t==='polygon'?3:2;
