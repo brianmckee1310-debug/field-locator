@@ -1,6 +1,6 @@
 import { extractGeo, fitTransform, dist } from './geo.js';
 import { listMaps, getMap, putMap, deleteMap, getData, putData } from './store.js';
-import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS } from './state.js';
+import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS, orderLayers } from './state.js';
 import { $, h, clamp, uid, toast, sheet, closeSheet, sheetOpen, dialog, fmtLen, fmtLL } from './ui.js';
 import { initTools } from './tools.js';
 import { initCalib } from './calib.js';
@@ -181,7 +181,7 @@ async function openMap(m){
   $('lib').classList.add('gone'); $('mapview').classList.remove('gone');
   S.map=m; S.sel=null; S.mode='map'; S.follow=false; S.fix=null; firstFix=true;
   const d=await getData(m.id).catch(()=>null);
-  S.data={ layers:(d&&d.layers&&d.layers.length)?d.layers:DEFAULT_LAYERS(), features:(d&&d.features)||[], tracks:(d&&d.tracks)||[],
+  S.data={ layers:orderLayers((d&&d.layers&&d.layers.length)?d.layers:DEFAULT_LAYERS()), features:(d&&d.features)||[], tracks:(d&&d.tracks)||[],
            activeLayer:(d&&d.activeLayer)||'mgmt' };
   if(!S.data.layers.find(l=>l.id===S.data.activeLayer)) S.data.activeLayer=S.data.layers[0].id;
   S.xf=fitOf(m);
@@ -301,7 +301,7 @@ function drawMe(){
   if(!on){
     const cx=S.W/2, cy=S.H/2, ang=Math.atan2(s.y-cy,s.x-cx), rr=Math.min(S.W,S.H)/2-44;
     off.style.display='block';
-    off.style.transform=`translate(${cx+Math.cos(ang)*rr-8}px,${cy+Math.sin(ang)*rr-10}px) rotate(${ang}rad)`;
+    off.style.transform=`translate(${cx+Math.cos(ang)*rr-15}px,${cy+Math.sin(ang)*rr-15}px) rotate(${ang}rad)`;
   } else off.style.display='none';
 }
 function drawScale(){

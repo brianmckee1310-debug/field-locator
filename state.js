@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.0';
+export const VERSION = '3.1';
 
 export const S = {
   map:null,            // current map record
@@ -26,12 +26,18 @@ export function saveSet(){
   try{ localStorage.setItem('fl.settings', JSON.stringify(S.set)); }catch(e){}
 }
 
+export const PRESET_ORDER = ['mgmt','trial','inv','samp'];
 export const DEFAULT_LAYERS = () => [
   {id:'mgmt',  name:'Management Notes', color:'#e8590c', visible:true},
+  {id:'trial', name:'Trials',           color:'#9334e6', visible:true},
   {id:'inv',   name:'Inventory',        color:'#0f9d58', visible:true},
   {id:'samp',  name:'Sampling',         color:'#1a73e8', visible:true},
-  {id:'trial', name:'Trials',           color:'#9334e6', visible:true},
 ];
+/* presets first in their fixed order, then custom layers in the order they were made */
+export function orderLayers(ls){
+  const rank = l => { const i=PRESET_ORDER.indexOf(l.id); return i<0 ? PRESET_ORDER.length : i; };
+  return ls.map((l,i)=>[l,i]).sort((a,b)=>rank(a[0])-rank(b[0]) || a[1]-b[1]).map(p=>p[0]);
+}
 export const PALETTE = ['#e8590c','#d93025','#f9ab00','#0f9d58','#12b5cb','#1a73e8','#9334e6','#e52592','#795548','#202124','#ffffff'];
 
 const P = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -53,7 +59,7 @@ export const ICON = {
   redo:   P('<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>'),
   layers: P('<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>'),
   track:  P('<circle cx="5" cy="19" r="1.7" fill="currentColor"/><circle cx="19" cy="5" r="1.7" fill="currentColor"/><path d="M8 17.5c3-.5 2-5 5-6s3-3.500 4-5" stroke-dasharray="2.2 3"/>'),
-  target: P('<circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="8.2"/><path d="M12 1.6v2.6M12 19.8v2.6M1.6 12h2.6M19.8 12h2.6"/>'),
+  target: P('<path d="M12 3.2l7.2 16.4-7.2-3.5-7.2 3.5z" stroke-width="1.8"/>'),
   eye:    P('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
   eyeoff: P('<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.300 6.300C3.600 8.100 2 12 2 12s3.600 7 10 7c1.500 0 2.900-.4 4.100-1"/>'),
   trash:  P('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>'),

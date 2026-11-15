@@ -200,19 +200,28 @@ function paintOne(ctx,f,T,s,k,now,isSel){
     if(big>46*k){ const a=anchorOf(f), q=T(a[0],a[1]); label(ctx,f.name,q.x,q.y-(f.type==='line'?11*k:0),k); }
   }
 }
-function handle(ctx,p,col,r,fill){
+function handle(ctx,p,col,r,fill,k=1){
   ctx.beginPath(); ctx.arc(p.x,p.y,r,0,7); ctx.fillStyle=fill?col:'#fff'; ctx.fill();
-  ctx.lineWidth=2.2; ctx.strokeStyle=fill?'#fff':col; ctx.stroke();
+  ctx.lineWidth=Math.max(1,2.2*k); ctx.strokeStyle=fill?'#fff':col; ctx.stroke();
+}
+/* nodes stay thumb-sized on a shape you can work on, and shrink away as it
+   gets small on screen, so a zoomed-out shape isn't buried under its own handles */
+function nodeScale(P){
+  if(!P.length) return 1;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const p of P){ if(p.x<x0)x0=p.x; if(p.y<y0)y0=p.y; if(p.x>x1)x1=p.x; if(p.y>y1)y1=p.y; }
+  const big=Math.hypot(x1-x0,y1-y0);
+  return Math.max(.42, Math.min(1, big/150));
 }
 function paintSelection(ctx){
   const f=selF(); if(!f||S.tool!=='select') return;
-  const col=colorOf(f), P=f.pts.map(scr);
+  const col=colorOf(f), P=f.pts.map(scr), k=nodeScale(P);
   if(f.type==='line'||f.type==='polygon'){
     const n=P.length, segs=f.type==='polygon'?n:n-1;
-    if(!moveMode) for(let i=0;i<segs;i++){ const a=P[i], b=P[(i+1)%n]; if(sdist(a,b)>44) handle(ctx,{x:(a.x+b.x)/2,y:(a.y+b.y)/2},rgba(col,.75),4.2,false); }
-    P.forEach((p,i)=>handle(ctx,p,col,i===selV?8:6.5,i===selV));
+    if(!moveMode&&k>.72) for(let i=0;i<segs;i++){ const a=P[i], b=P[(i+1)%n]; if(sdist(a,b)>44) handle(ctx,{x:(a.x+b.x)/2,y:(a.y+b.y)/2},rgba(col,.75),4.2*k,false,k); }
+    P.forEach((p,i)=>handle(ctx,p,col,(i===selV?8:6.5)*k,i===selV,k));
   } else if(f.type==='circle'){
-    handle(ctx,P[0],col,6.5,false); handle(ctx,{x:P[0].x+f.r*S.view.s,y:P[0].y},col,6.5,false);
+    handle(ctx,P[0],col,6.5*k,false,k); handle(ctx,{x:P[0].x+f.r*S.view.s,y:P[0].y},col,6.5*k,false,k);
   }
 }
 function paintDraft(ctx){
