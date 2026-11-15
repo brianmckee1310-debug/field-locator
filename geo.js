@@ -99,62 +99,155 @@ export async function extractGeo(bytes, pageHeightPt){
   return found;
 }
 
-function scan(txt, pageHeightPt){
-  // every viewport in the file; take the largest that has a Measure with GPTS
-  const results=[];
-  let idx=0;
-  while(true){
-    const vp = txt.indexOf('/VP', idx);
-    if(vp<0) break;
-    idx = vp+3;
-    const body = sliceBalanced(txt, vp);
-    if(!body) continue;
-    const bb = /\/BBox\s*\[([^\]]*)\]/.exec(body);
-    const mr = /\/Measure\s+(\d+)\s+(\d+)\s+R/.exec(body);
-    let gptsTxt=null, lptsTxt=null, wkt=null;
-
-    if(mr){
-      const re=new RegExp('(?:^|[^0-9])'+mr[1]+'\\s+'+mr[2]+'\\s+obj([\\s\\S]{0,4000}?)endobj');
-      const om=re.exec(txt);
-      if(om){
-        const g=/\/GPTS\s*\[([^\]]*)\]/.exec(om[1]); if(g) gptsTxt=g[1];
-        const l=/\/LPTS\s*\[([^\]]*)\]/.exec(om[1]); if(l) lptsTxt=l[1];
-        const w=/\/WKT\s*\(([^)]*)\)/.exec(om[1]);   if(w) wkt=w[1];
-        if(!wkt){ const gw=/\/WKT\s*\(([^)]*)\)/.exec(txt); if(gw) wkt=gw[1]; }
-      }
-    }
-    if(!gptsTxt){                       // inline /Measure dict
-      const g=/\/GPTS\s*\[([^\]]*)\]/.exec(body); if(g) gptsTxt=g[1];
-      const l=/\/LPTS\s*\[([^\]]*)\]/.exec(body); if(l) lptsTxt=l[1];
-    }
-    if(!bb || !gptsTxt) continue;
-
-    const B=nums(bb[1]), G=nums(gptsTxt);
-    let L = lptsTxt ? nums(lptsTxt) : [0,1,0,0,1,0,1,1];
-    if(B.length<4 || G.length<8 || L.length<8) continue;
-
-    const x0=Math.min(B[0],B[2]), x1=Math.max(B[0],B[2]);
-    const yA=B[1], yB=B[3];            // BBox order encodes the frame's y direction
-    // convert to top-left origin
-    const topY  = pageHeightPt - yA;
-    const botY  = pageHeightPt - yB;
-    const frameX = x0, frameW = x1-x0;
-    const frameY = Math.min(topY,botY), frameH = Math.abs(botY-topY);
-    // LPTS y is measured from BBox[1] toward BBox[3]
-    const flip = topY > botY;
-
-    const pts=[];
-    for(let i=0;i<4;i++){
-      const lx=L[i*2], lyRaw=L[i*2+1];
-      const ly = flip ? 1-lyRaw : lyRaw;
-      pts.push({ lx, ly, lat:G[i*2], lon:G[i*2+1] });
-    }
-    if(pts.some(p=>!isFinite(p.lat)||!isFinite(p.lon)||Math.abs(p.lat)>90||Math.abs(p.lon)>180)) continue;
-    results.push({ framePt:{x:frameX,y:frameY,w:frameW,h:frameH}, pts, wkt, area:frameW*frameH });
+/* ---- object / dict helpers for per-page lookups ---- */
+function objBody(txt, num, gen){
+  const re=new RegExp('(?:^|[^0-9])'+num+'\\s+'+(gen||0)+'\\s+obj\\b([\\s\\S]*?)endobj');
+  const m=re.exec(txt); return m?m[1]:null;
+}
+function sliceDict(txt, from){
+  let i=txt.indexOf('<<', from); if(i<0) return null;
+  let d=0, j=i;
+  while(j<txt.length){
+    if(txt.startsWith('<<',j)){ d++; j+=2; }
+    else if(txt.startsWith('>>',j)){ d--; j+=2; if(d===0) return {body:txt.slice(i+2,j-2), end:j}; }
+    else j++;
   }
-  if(!results.length) return null;
-  results.sort((a,b)=>b.area-a.area);
-  return results[0];
+  return null;
+}
+/* the dicts inside a /VP array body: inline << >> or indirect "n g R" */
+function vpDicts(body, txt){
+  const out=[]; let i=0;
+  while(true){ const d=sliceDict(body,i); if(!d) break; out.push(d.body); i=d.end; }
+  if(out.length) return out;
+  const re=/(\d+)\s+(\d+)\s+R/g, seen=new Set(); let m;
+  while((m=re.exec(body))){
+    const k=m[1]+'_'+m[2]; if(seen.has(k)) continue; seen.add(k);
+    const b=objBody(txt,m[1],m[2]); if(b) out.push(b);
+  }
+  return out;
+}
+
+/* one viewport dict -> {framePt, pts, wkt, area} in PDF points, y from the TOP */
+function parseVP(body, txt, pageHeightPt){
+  const bb = /\/BBox\s*\[([^\]]*)\]/.exec(body);
+  const mr = /\/Measure\s+(\d+)\s+(\d+)\s+R/.exec(body);
+  let gptsTxt=null, lptsTxt=null, wkt=null;
+  if(mr){
+    const om=objBody(txt, mr[1], mr[2]);
+    if(om){
+      const g=/\/GPTS\s*\[([^\]]*)\]/.exec(om); if(g) gptsTxt=g[1];
+      const l=/\/LPTS\s*\[([^\]]*)\]/.exec(om); if(l) lptsTxt=l[1];
+      const w=/\/WKT\s*\(([^)]*)\)/.exec(om);   if(w) wkt=w[1];
+    }
+  }
+  if(!gptsTxt){                       // inline /Measure dict
+    const g=/\/GPTS\s*\[([^\]]*)\]/.exec(body); if(g) gptsTxt=g[1];
+    const l=/\/LPTS\s*\[([^\]]*)\]/.exec(body); if(l) lptsTxt=l[1];
+  }
+  if(!wkt){ const gw=/\/WKT\s*\(([^)]*)\)/.exec(txt); if(gw) wkt=gw[1]; }
+  if(!bb || !gptsTxt) return null;
+
+  const B=nums(bb[1]), G=nums(gptsTxt);
+  const L = lptsTxt ? nums(lptsTxt) : [0,1,0,0,1,0,1,1];
+  if(B.length<4 || G.length<8 || L.length<8) return null;
+
+  const x0=Math.min(B[0],B[2]), x1=Math.max(B[0],B[2]);
+  const yA=B[1], yB=B[3];            // BBox order encodes the frame's y direction
+  const topY = pageHeightPt - yA, botY = pageHeightPt - yB;
+  const frameX=x0, frameW=x1-x0;
+  const frameY=Math.min(topY,botY), frameH=Math.abs(botY-topY);
+  const flip = topY > botY;          // LPTS y runs from BBox[1] toward BBox[3]
+
+  const pts=[];
+  for(let i=0;i<4;i++){
+    const lx=L[i*2], lyRaw=L[i*2+1];
+    pts.push({ lx, ly: flip ? 1-lyRaw : lyRaw, lat:G[i*2], lon:G[i*2+1] });
+  }
+  if(!(frameW>1 && frameH>1)) return null;
+  if(pts.some(p=>!isFinite(p.lat)||!isFinite(p.lon)||Math.abs(p.lat)>90||Math.abs(p.lon)>180)) return null;
+  return { framePt:{x:frameX,y:frameY,w:frameW,h:frameH}, pts, wkt, area:frameW*frameH };
+}
+
+/* every viewport anywhere in the file, biggest first */
+function scanAll(txt, pageHeightPt){
+  const out=[]; let idx=0;
+  while(true){
+    const vp=txt.indexOf('/VP', idx);
+    if(vp<0) break;
+    idx=vp+3;
+    const arr=sliceBalanced(txt, vp);
+    if(!arr) continue;
+    for(const d of vpDicts(arr, txt)){
+      const r=parseVP(d, txt, pageHeightPt);
+      if(r) out.push(r);
+    }
+  }
+  out.sort((a,b)=>b.area-a.area);
+  return out;
+}
+function scan(txt, pageHeightPt){
+  const all=scanAll(txt, pageHeightPt);
+  return all.length?all[0]:null;
+}
+
+/* the viewports belonging to ONE page, found through that page object's own /VP.
+   This is what makes a multi-sheet PDF work: a whole-file scan cannot tell which
+   sheet a viewport belongs to. ref comes from pdf.js (page.ref). */
+export async function extractGeoPage(bytes, pageHeightPt, ref){
+  if(!ref) return null;
+  let txt=new TextDecoder('latin1').decode(bytes);
+  let r=pageScan(txt, pageHeightPt, ref);
+  if(!r){
+    const extra=await inflateStreams(bytes, txt);
+    if(extra) r=pageScan(txt+extra, pageHeightPt, ref);
+  }
+  return r;
+}
+function pageScan(txt, pageHeightPt, ref){
+  const body=objBody(txt, ref.num, ref.gen);
+  if(!body) return null;
+  let arr=null;
+  const direct=/\/VP\s*\[/.exec(body);
+  if(direct) arr=sliceBalanced(body, direct.index);
+  if(arr==null){
+    const ind=/\/VP\s+(\d+)\s+(\d+)\s+R/.exec(body);
+    if(ind){ const b=objBody(txt, ind[1], ind[2]); if(b){ const i=b.indexOf('['); if(i>=0) arr=sliceBalanced(b,i); } }
+  }
+  if(arr==null) return null;
+  const res=[];
+  for(const d of vpDicts(arr, txt)){ const r=parseVP(d, txt, pageHeightPt); if(r) res.push(r); }
+  res.sort((a,b)=>b.area-a.area);
+  return res.length?res[0]:null;
+}
+/* one decode of the file, reused for every page in it */
+export async function geoScanner(bytes){
+  let txt=new TextDecoder('latin1').decode(bytes);
+  let grown=false;
+  const grow=async()=>{ if(grown) return; grown=true;
+    const extra=await inflateStreams(bytes, txt); if(extra) txt+=extra; };
+  return {
+    async forPage(ref, hPt){
+      let r = ref ? pageScan(txt, hPt, ref) : null;
+      if(!r){ await grow(); r = ref ? pageScan(txt, hPt, ref) : null; }
+      return r;
+    },
+    async all(hPt){
+      let a=scanAll(txt, hPt);
+      if(!a.length){ await grow(); a=scanAll(txt, hPt); }
+      return a;
+    }
+  };
+}
+
+/* fallback for files whose page objects don't resolve: viewports in file order */
+export async function extractGeoList(bytes, pageHeightPt){
+  let txt=new TextDecoder('latin1').decode(bytes);
+  let all=scanAll(txt, pageHeightPt);
+  if(!all.length){
+    const extra=await inflateStreams(bytes, txt);
+    if(extra) all=scanAll(txt+extra, pageHeightPt);
+  }
+  return all;
 }
 
 /* ================= v3: control-point transforms =================

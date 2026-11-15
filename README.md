@@ -9,6 +9,9 @@ Live: https://brianmckee1310-debug.github.io/field-locator/
 
 - **Maps from anything.** Georeferenced PDFs (GeoPDF) work straight away. Any other PDF, image or
   screenshot is placed on the ground with pins. Free USGS aerial imagery can be downloaded for any US site.
+- **Multi-sheet sites.** Pick several georeferenced PDFs at once, or one PDF with several map pages,
+  and they are cut to their own map frames and joined into a single continuous map. No matchlines
+  needed: each sheet is placed by its own coordinates.
 - **Your position** on the map, with accuracy circle, heading, off-map warning and a scale bar.
 - **Drawing tools**: pins, lines, areas, freehand, rectangles, circles, arrows, text and a measure tool,
   with live lengths and areas. Points can be dropped at your GPS position, so you can walk a boundary.
@@ -27,7 +30,10 @@ three pins the app reports each pin's error; from four it can tell which pin dis
 "stretch fix" switches to a full affine fit for scans that are not true to scale.
 
 GeoPDFs are read directly: the `/VP` `/Measure` block gives four corner coordinates (`/GPTS`) and the
-map frame (`/BBox`), fitted with an affine transform.
+map frame (`/BBox`), fitted with an affine transform. Viewports are looked up through each page
+object's own `/VP`, so every page of a multi-sheet PDF gets the right one; a whole-file scan is the
+fallback. The `/BBox` is the neatline, which is what makes cropping the border, title block, header,
+footer and margin legend exact rather than a guess.
 
 ## Files
 
@@ -41,12 +47,15 @@ map frame (`/BBox`), fitted with an affine transform.
 | `io.js` | Exports, site files |
 | `aerial.js` | USGS aerial download |
 | `geo.js` | GeoPDF extraction, transforms, geometry |
+| `mosaic.js` | Multi-sheet sites: neatline crop and reprojection into one raster |
 | `store.js`, `state.js`, `ui.js` | Storage, shared state, UI helpers |
 | `sw.js` | Offline caching. Bump `CACHE` on every release. |
 
 ## Data model
 
 - Store `maps`: `{id, name, blob, imgW, imgH, ctrl:[{px,py,lat,lon}], fit, geoSrc, origCtrl, thumb, site}`
+  - a combined map also carries `sheets:[{name,file,page,crop,w,h,masks}]` and
+    `mosaic:{mPerPx,latMin,latMax,lonMin,lonMax,budgetMP}`, so it can be rebuilt or re-cropped later
 - Store `data` (same id): `{layers:[{id,name,color,visible}], features:[...], tracks:[...], activeLayer}`
 - Feature: `{id, type: point|line|polygon|circle|text, layer, name, note, pts:[[x,y]], r, text, size,
   color, width, fill, dash, arrow, gps:{lat,lon,acc}, t, link}`. Geometry is stored in image pixels

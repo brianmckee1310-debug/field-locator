@@ -1,4 +1,5 @@
-import { extractGeo, fitTransform, dist } from './geo.js';
+import { extractGeo, geoScanner, fitTransform, dist } from './geo.js';
+import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers } from './mosaic.js';
 import { listMaps, getMap, putMap, deleteMap, getData, putData } from './store.js';
 import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS, orderLayers } from './state.js';
 import { $, h, clamp, uid, toast, sheet, closeSheet, sheetOpen, dialog, fmtLen, fmtLL } from './ui.js';
@@ -54,7 +55,8 @@ A.addMapFromCanvas=async function(c,{name,ctrl=[],fit='similarity',geoSrc=null,e
 };
 
 /* ===================== library ===================== */
-const tagOf = m => m.geoSrc==='pdf' ? ['GeoPDF',''] : m.geoSrc==='aerial' ? ['Aerial','']
+const tagOf = m => m.geoSrc==='mosaic' ? [`${(m.sheets||[]).length||'Multi'} sheets`,'']
+                 : m.geoSrc==='pdf' ? ['GeoPDF',''] : m.geoSrc==='aerial' ? ['Aerial','']
                  : (m.ctrl.length>=2 ? ['Calibrated',''] : ['Needs pins','warn']);
 async function renderLib(){
   const stored=(await listMaps().catch(()=>[])).map(normalizeMap).sort((a,b)=>b.created-a.created);
@@ -97,7 +99,26 @@ function mapOptions(m){
 /* ===================== import ===================== */
 $('addbtn').onclick=()=>$('file').click();
 $('aerbtn').onclick=()=>A.aerialSheet();
-$('file').onchange=async e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=''; if(f) await importFile(f); };
+$('file').onchange=async e=>{ const fs=[...(e.target.files||[])]; e.target.value=''; if(fs.length) await importChosen(fs); };
+
+/* one file is the old path; several PDFs, or one PDF with several map pages,
+   can be combined into a single site map */
+async function importChosen(files){
+  const pdfs=files.filter(f=>/\.pdf$/i.test(f.name||'')||f.type==='application/pdf');
+  if(files.length>1){
+    if(pdfs.length>1) return combineFlow(pdfs, files.length-pdfs.length);
+    for(const f of files) await importFile(f);
+    return;
+  }
+  const f=files[0];
+  if(pdfs.length===1){
+    try{
+      const L=await loadPDF(f);
+      if(L.doc.numPages>1) return combineFlow([f], 0, L);
+    }catch(err){ /* fall through to the normal importer, which reports properly */ }
+  }
+  await importFile(f);
+}
 
 async function importFile(file){
   const name=(file.name||'').toLowerCase();
@@ -119,13 +140,41 @@ async function importFile(file){
 }
 A.importFile=importFile;
 const cleanName = n => (n||'Map').replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').trim().slice(0,60)||'Map';
+/* one file keeps its own name; several share whatever prefix they have */
+function siteName(files){
+  const ns=files.map(f=>cleanName(f.name));
+  let base = ns.length===1 ? ns[0] : (()=>{
+    let i=0; while(i<ns[0].length && ns.every(n=>n[i]&&n[i].toLowerCase()===ns[0][i].toLowerCase())) i++;
+    return ns[0].slice(0,i);
+  })();
+  base=base.replace(/[\s,;:·-]+$/,'').replace(/\s*(sheet|sht|page|pg|map)?\s*\d+$/i,'').trim();
+  if(base.length<3 || /^(sheet|sht|page|pg|map|site|plan)$/i.test(base)) return 'Site map';
+  return base.slice(0,60);
+}
 
-async function importPDF(file){
-  A.busy(8,'Reading PDF…');
+async function loadPDF(file){
   const bytes=new Uint8Array(await file.arrayBuffer());
   const pdfjs=await import('./pdf.min.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc='./pdf.worker.min.mjs';
   const doc=await pdfjs.getDocument({data:bytes.slice(0)}).promise;
+  return {bytes, doc, file};
+}
+/* rotation:0 keeps canvas pixels a plain multiple of PDF points, which is what
+   the /BBox neatline and the LPTS corners are measured in */
+async function renderPage(doc, pn, {maxPx=12e6, maxDim=4200, unrotated=false}={}){
+  const page=await doc.getPage(pn);
+  const vw=page.view, wPt=vw[2]-vw[0], hPt=vw[3]-vw[1];
+  const scale=Math.min(maxDim/Math.max(wPt,hPt), Math.sqrt(maxPx/(wPt*hPt)));
+  const vp=page.getViewport(unrotated?{scale,rotation:0}:{scale});
+  const c=document.createElement('canvas');
+  c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+  const cx=c.getContext('2d',{alpha:false}); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height);
+  await page.render({canvasContext:cx,viewport:vp}).promise;
+  return {page, canvas:c, scale, wPt, hPt};
+}
+
+async function importPDF(file){
+  const {bytes, doc} = await loadPDF(file);
   let pn=1;
   if(doc.numPages>1){
     A.busyOff();
@@ -135,23 +184,140 @@ async function importPDF(file){
   }
   A.busy(24,'Looking for georeferencing…');
   const page=await doc.getPage(pn);
-  const vw=page.view, wPt=vw[2]-vw[0], hPt=vw[3]-vw[1];
-  let geo=null;
-  if(pn===1 && page.rotate%360===0) geo=await extractGeo(bytes,hPt);
+  const vw=page.view, hPt=vw[3]-vw[1];
+  /* any page, not just the first: the page object's own /VP says which
+     viewport belongs to it */
+  const scan=await geoScanner(bytes);
+  let geo=await scan.forPage(page.ref, hPt);
+  if(!geo && doc.numPages===1) geo=await extractGeo(bytes, hPt);
   A.busy(45,'Rendering map…');
-  const scale=Math.min(4200/Math.max(wPt,hPt), Math.sqrt(12e6/(wPt*hPt)));
-  const vp=page.getViewport({scale});
-  const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
-  const cx=c.getContext('2d',{alpha:false}); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height);
-  await page.render({canvasContext:cx,viewport:vp}).promise;
+  const R=await renderPage(doc, pn, {unrotated:!!geo});
   A.busy(82,'Saving…');
   let ctrl=[], fit='similarity', geoSrc=null;
   if(geo){
-    const f={x:geo.framePt.x*scale,y:geo.framePt.y*scale,w:geo.framePt.w*scale,h:geo.framePt.h*scale};
+    const f={x:geo.framePt.x*R.scale,y:geo.framePt.y*R.scale,w:geo.framePt.w*R.scale,h:geo.framePt.h*R.scale};
     const cand=geo.pts.map(p=>({px:f.x+p.lx*f.w, py:f.y+p.ly*f.h, lat:p.lat, lon:p.lon}));
     if(fitTransform(cand,'affine')){ ctrl=cand; fit='affine'; geoSrc='pdf'; }
   }
-  return A.addMapFromCanvas(c,{name:cleanName(file.name),ctrl,fit,geoSrc});
+  return A.addMapFromCanvas(R.canvas,{name:cleanName(file.name),ctrl,fit,geoSrc});
+}
+
+/* ===================== multi-sheet sites ===================== */
+/* a little promise-returning chooser, since dialog() only does text fields */
+function pickSheet(title, intro, rows){
+  return new Promise(res=>{
+    let done=false;
+    const fin=v=>{ if(done) return; done=true; closeSheet(); res(v); };
+    const body=h('div',{},
+      intro?h('div',{class:'note'},intro):null,
+      rows.map(r=>h('div',{class:'row tap'+(r.cls?' '+r.cls:''),onclick:()=>fin(r.value)},
+        r.icon?h('span',{html:ICON[r.icon]}):null,
+        h('div',{class:'rm'},h('div',{class:'r1'},r.label), r.sub?h('div',{class:'r2'},r.sub):null))));
+    sheet(title, body, {onclose:()=>fin(null)});
+  });
+}
+
+const QUALITY=[{mp:14,label:'Standard'},{mp:26,label:'Fine'},{mp:40,label:'Maximum'}];
+/* points shaved off each sheet edge to swallow the neatline stroke */
+const TRIM_PT=0.6;
+
+async function combineFlow(files, skipped=0, pre=null){
+  try{
+    A.busy(5,'Reading PDFs…');
+    const loads=[];
+    for(const f of files){
+      const L = (pre && pre.file===f) ? pre : await loadPDF(f);
+      L.scan = await geoScanner(L.bytes);
+      loads.push(L);
+    }
+    /* every page of every file is a candidate sheet */
+    const entries=[];
+    for(const L of loads){
+      for(let pn=1; pn<=L.doc.numPages; pn++){
+        const page=await L.doc.getPage(pn);
+        const vw=page.view, wPt=vw[2]-vw[0], hPt=vw[3]-vw[1];
+        entries.push({ L, pn, page, wPt, hPt,
+          name: cleanName(L.file.name)+(L.doc.numPages>1?` · p${pn}`:''),
+          geo: await L.scan.forPage(page.ref, hPt) });
+      }
+      A.busy(5+30*(loads.indexOf(L)+1)/loads.length,'Reading georeferencing…');
+    }
+    /* some writers put the viewports where a page object can't be resolved;
+       if nothing matched, fall back to viewports in file order */
+    if(!entries.some(e=>e.geo)){
+      for(const L of loads){
+        const es=entries.filter(e=>e.L===L);
+        const all=await L.scan.all(es[0].hPt);
+        if(all.length===es.length) es.forEach((e,i)=>e.geo=all[i]);
+      }
+    }
+    const ok=entries.filter(e=>e.geo), bad=entries.filter(e=>!e.geo);
+    A.busyOff();
+
+    if(ok.length<2){
+      const r=await pickSheet('Not enough georeferenced sheets',
+        `Only ${ok.length} of ${entries.length} page${entries.length===1?'':'s'} carries coordinates, so there is nothing to join. Sheets without coordinates can still be added one at a time and placed with pins.`,
+        [{icon:'plus',label:'Add them separately',sub:'Each becomes its own map',value:'sep'},
+         {icon:'x',label:'Cancel',value:null}]);
+      if(r==='sep') for(const f of files) await importFile(f);
+      return null;
+    }
+
+    /* plan from page geometry alone, so nothing is rendered until he says go */
+    const placed=ok.map(e=>{
+      const scale=Math.min(4200/Math.max(e.wPt,e.hPt), Math.sqrt(12e6/(e.wPt*e.hPt)));
+      const sheet={geo:e.geo, scale, w:Math.round(e.wPt*scale), h:Math.round(e.hPt*scale)};
+      return { e, scale, w:sheet.w, h:sheet.h, xf:sheetFit(sheet), crop:cropRect(sheet,TRIM_PT), masks:[] };
+    }).filter(p=>p.xf);
+
+    if(placed.length<2){ toast('Those sheets could not be placed on the ground',4200); return null; }
+
+    const odd=outliers(placed);
+    const keep=odd.length?placed.filter(p=>!odd.some(o=>o.s===p)):placed;
+    const plans=QUALITY.map(q=>({q, plan:planMosaic(keep,{budgetMP:q.mp})}));
+    const ftpx=p=>(p.mPerPx/0.3048)<1 ? (p.mPerPx/0.3048).toFixed(2)+' ft/px' : (p.mPerPx/0.3048).toFixed(1)+' ft/px';
+    const across=p=>fmtLen(p.widthM,S.set.units)+' × '+fmtLen(p.heightM,S.set.units);
+
+    const intro = `${keep.length} georeferenced sheet${keep.length===1?'':'s'} covering ${across(plans[0].plan)}.`
+      + (bad.length?` ${bad.length} page${bad.length===1?'':'s'} without coordinates will be left out.`:'')
+      + (odd.length?` ${odd.length} sheet${odd.length===1?'':'s'} sits far from the others and was dropped.`:'')
+      + (skipped?` ${skipped} non-PDF file${skipped===1?'':'s'} ignored.`:'')
+      + ' Each sheet is cut to its own map frame, so borders, title blocks and margin legends do not come along.';
+
+    const choice=await pickSheet('Combine into one map', intro,
+      plans.map(({q,plan})=>({ icon:'polygon', label:q.label,
+        sub:`${ftpx(plan)} · ${plan.W.toLocaleString()} × ${plan.H.toLocaleString()} px`,
+        value:q.mp })));
+    if(choice==null) return null;
+
+    const plan=plans.find(p=>p.q.mp===choice).plan;
+    A.busy(8,'Building the site map…');
+    const cv=await drawMosaic(keep, plan, {
+      onStep:(i,n)=>A.busy(8+84*i/n, n?`Placing sheet ${Math.min(i+1,n)} of ${n}…`:'Placing sheets…'),
+      render:async p=>(await renderPage(p.e.L.doc, p.e.pn, {unrotated:true})).canvas
+    });
+    A.busy(94,'Saving…');
+    const ctrl=mosaicCtrl(plan);
+    const base=siteName(files);
+    const rec=await A.addMapFromCanvas(cv,{
+      name: base || 'Site map', ctrl, fit:'affine', geoSrc:'mosaic',
+      extra:{ sheets: keep.map(p=>({ name:p.e.name, file:p.e.L.file.name, page:p.e.pn,
+                                     crop:p.crop, w:p.w, h:p.h, masks:[] })),
+              mosaic:{ mPerPx:plan.mPerPx, latMin:plan.latMin, latMax:plan.latMax,
+                       lonMin:plan.lonMin, lonMax:plan.lonMax, budgetMP:choice } }});
+    cv.width=cv.height=1;
+    A.busyOff();
+    await renderLib();
+    toast(`${keep.length} sheets joined into “${rec.name}”`,4200);
+    return rec;
+  }catch(err){
+    A.busyOff();
+    const big = /TOO_BIG|exceed|memory|allocat/i.test((err&&err.message)||'');
+    await dialog({title: big?'That was too big for this device':'Couldn’t combine those sheets',
+      text: big ? 'The combined map needed more memory than this phone would give. Try again and pick a lower quality — Standard is usually plenty for finding your way around a site.'
+                : (err.message||String(err)), cancel:null});
+    return null;
+  }
 }
 
 async function importImage(file){
