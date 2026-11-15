@@ -1,4 +1,4 @@
-const CACHE='fl-v3.6';
+const CACHE='fl-v3.7';
 const ASSETS=['./','./index.html','./app.css','./app.js','./state.js','./ui.js','./geo.js','./store.js','./tools.js','./calib.js','./mosaic.js','./sheets.js','./coverage.js','./photos.js',
   './track.js','./io.js','./aerial.js','./manifest.json','./icon-192.png','./icon-512.png','./pdf.min.mjs','./pdf.worker.min.mjs'];
 self.addEventListener('install',e=>{

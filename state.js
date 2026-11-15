@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.6';
+export const VERSION = '3.7';
 
 export const S = {
   map:null,            // current map record
@@ -45,6 +45,10 @@ export const PALETTE = ['#e8590c','#d93025','#f9ab00','#0f9d58','#12b5cb','#1a73
 const P = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 export const ICON = {
   back:   P('<path d="M15 5l-7 7 7 7"/>'),
+  up:     P('<path d="M5 15l7-7 7 7"/>'),
+  down:   P('<path d="M5 9l7 7 7-7"/>'),
+  minus:  P('<path d="M5 12h14"/>'),
+  crop:   P('<path d="M6 2v16h16"/><path d="M2 6h16v16"/>'),
   menu:   P('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>'),
   select: P('<path d="M5 3l6.5 17 2.3-7.2L21 10.5z"/>'),
   point:  P('<path d="M12 21s-6.5-6.1-6.5-11A6.5 6.5 0 0 1 18.5 10c0 4.9-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>'),

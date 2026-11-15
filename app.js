@@ -1,5 +1,5 @@
 import { extractGeo, geoScanner, fitTransform, dist } from './geo.js';
-import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers } from './mosaic.js';
+import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers, DEFAULT_TRIM_PT } from './mosaic.js';
 import { initSheets } from './sheets.js';
 import { initCoverage } from './coverage.js';
 import { initPhotos } from './photos.js';
@@ -227,8 +227,7 @@ function pickSheet(title, intro, rows){
 }
 
 const QUALITY=[{mp:14,label:'Standard'},{mp:26,label:'Fine'},{mp:40,label:'Maximum'}];
-/* points shaved off each sheet edge to swallow the neatline stroke */
-const TRIM_PT=0.6;
+const TRIM_PT=DEFAULT_TRIM_PT;
 
 async function combineFlow(files, skipped=0, pre=null){
   try{
@@ -312,6 +311,8 @@ async function combineFlow(files, skipped=0, pre=null){
       name: base || 'Site map', ctrl, fit:'affine', geoSrc:'mosaic',
       extra:{ sheets: keep.map(p=>({ name:p.e.name, file:p.e.L.file.name, page:p.e.pn,
                                      scale:p.scale, w:p.w, h:p.h, crop:p.crop, masks:[], visible:true,
+                                     frame:{x:p.e.geo.framePt.x*p.scale, y:p.e.geo.framePt.y*p.scale,
+                                            w:p.e.geo.framePt.w*p.scale, h:p.e.geo.framePt.h*p.scale},
                                      ctrl:p.e.geo.pts.map(q=>({
                                        px:(p.e.geo.framePt.x+q.lx*p.e.geo.framePt.w)*p.scale,
                                        py:(p.e.geo.framePt.y+q.ly*p.e.geo.framePt.h)*p.scale,

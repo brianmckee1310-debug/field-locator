@@ -22,19 +22,41 @@ export function sheetFit(sheet){
   return fitTransform(ctrl, 'affine');
 }
 
+/* Points shaved off each sheet edge by default. Measured on a real ArcMap
+   export (Nov 2026): the neatline is a 1 pt stroke centred on the /VP BBox, so
+   half a point of it sits inside the frame. 0.6 pt left a grey hairline once
+   the sheet was resampled; 1 pt clears it with room for the blur. */
+export const DEFAULT_TRIM_PT = 1.0;
+export const TRIM_STEPS = [0, 0.3, 0.6, 1, 1.5, 2, 3, 5, 8];
+
+/* the untrimmed map frame of a stored sheet, in its own pixels. Sheets saved
+   before v3.7 carry no `frame`, but their control points ARE the frame's
+   corners, so it can always be recovered. */
+export function frameOf(s){
+  if(s.frame) return s.frame;
+  const xs=s.ctrl.map(c=>c.px), ys=s.ctrl.map(c=>c.py);
+  const x=Math.min(...xs), y=Math.min(...ys);
+  return { x, y, w:Math.max(...xs)-x, h:Math.max(...ys)-y };
+}
+
+/* frame -> crop: shave `trimPx` off every edge and clamp to the page */
+export function cropFromFrame(fr, trimPx, w, h){
+  const d = Math.max(0, Math.min(trimPx, fr.w/4, fr.h/4));
+  const x = Math.max(0, fr.x + d), y = Math.max(0, fr.y + d);
+  return { x, y,
+    w: Math.max(1, Math.min(w, fr.x+fr.w - d) - x),
+    h: Math.max(1, Math.min(h, fr.y+fr.h - d) - y) };
+}
+
 /* the neatline, in canvas pixels, clamped to the page. Needs only the page
-   size, so a sheet can be planned before it is rendered. */
+   size, so a sheet can be planned before it is rendered. The neatline is
+   usually STROKED on the BBox edge, so half its width falls inside the crop
+   and two neighbours meet as a double line; trimming removes it at the cost
+   of a hairline gap between sheets that only just touch -- which is why it is
+   a setting and not a constant. */
 export function cropRect(sheet, trimPt=0){
   const f = sheet.geo.framePt, k = sheet.scale;
-  /* the neatline is usually STROKED on the BBox edge, so half its width falls
-     inside the crop and two neighbours meet as a double line. Trimming a
-     fraction of a point off each edge removes it, at the cost of a hairline
-     gap -- which is why it is a setting and not a constant. */
-  const d = Math.min(trimPt*k, f.w*k/4, f.h*k/4);
-  const x = Math.max(0, f.x*k + d), y = Math.max(0, f.y*k + d);
-  return { x, y,
-    w: Math.max(1, Math.min(sheet.w, (f.x+f.w)*k - d) - x),
-    h: Math.max(1, Math.min(sheet.h, (f.y+f.h)*k - d) - y) };
+  return cropFromFrame({x:f.x*k, y:f.y*k, w:f.w*k, h:f.h*k}, trimPt*k, sheet.w, sheet.h);
 }
 
 /* ground extent of every sheet, and the resolution the mosaic will use */

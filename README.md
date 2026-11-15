@@ -12,7 +12,8 @@ Live: https://brianmckee1310-debug.github.io/field-locator/
 - **Multi-sheet sites.** Pick several georeferenced PDFs at once, or one PDF with several map pages,
   and they are cut to their own map frames and joined into a single continuous map. No matchlines
   needed: each sheet is placed by its own coordinates. A key or inset drawn inside a sheet's frame
-  can be boxed out, sheets can be turned off, and the map rebuilt at another quality -- drawings are
+  can be boxed out (on one sheet or the same spot on all), sheets can be turned off, reordered
+  (top of the list wins on overlap), edge-trimmed or cropped by hand, and the map rebuilt -- drawings are
   carried across through ground coordinates, so nothing moves.
 - **Your position** on the map, with accuracy circle, heading, off-map warning and a scale bar.
 - **Drawing tools**: pins, lines, areas, freehand, rectangles, circles, arrows, text and a measure tool,
@@ -68,7 +69,7 @@ footer and margin legend exact rather than a guess.
 - Store `photos` (DB v3): `{id, fid, mid, blob, thumb, w, h, t, name, lat, lon}`, indexed on `fid`
   and `mid`. A feature carries only `photos: <count>`; the images are read when opened.
 - Store `maps`: `{id, name, blob, imgW, imgH, ctrl:[{px,py,lat,lon}], fit, geoSrc, origCtrl, thumb, site}`
-  - a combined map also carries `sheets:[{name,file,page,scale,w,h,crop,ctrl,masks,visible}]`,
+  - a combined map also carries `sheets:[{name,file,page,scale,w,h,crop,frame,hand,ctrl,masks,visible}]` (array order = draw order, last on top; `hand` = crop set by hand, left alone by edge trim),
     `sources:[{name,blob}]` (the original PDFs, so it can be rebuilt without them being re-picked)
     and `mosaic:{mPerPx,latMin,latMax,lonMin,lonMax,budgetMP,trimPt,W,H}`.
     `sources` is deliberately left out of the `.fieldmap` export.
