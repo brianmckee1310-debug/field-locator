@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.1';
+export const VERSION = '3.2';
 
 export const S = {
   map:null,            // current map record
@@ -13,7 +13,8 @@ export const S = {
   tool:'select',
   sel:null,            // selected feature id
   mode:'map',          // 'map' | 'calib'
-  set:{ units:'ft', labels:true, interval:30, saver:false, wake:true },
+  set:{ units:'ft', labels:true, interval:30, saver:false, wake:true,
+        roll:100, olap:10, bw:8 },   // blanket: sq yd per roll, overlap %, strip width in ft
   fixListeners:new Set(),
 };
 /* functions the modules register for each other (keeps imports acyclic) */
@@ -72,6 +73,7 @@ export const ICON = {
   calib:  P('<path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>'),
   plus:   P('<path d="M12 5v14M5 12h14"/>'),
   globe:  P('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.200 3 14.800 0 18M12 3c-3 3.200-3 14.800 0 18"/>'),
+  search: P('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.8 4.8"/>'),
   gear:   P('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.900 4.900l2.100 2.100M17 17l2.100 2.100M4.900 19.100L7 17M17 7l2.100-2.100"/>'),
   rec:    P('<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>'),
   stop:   P('<rect x="7" y="7" width="10" height="10" rx="1.500" fill="currentColor" stroke="none"/>'),

@@ -92,12 +92,18 @@ export async function saveFile(name, blob, {share=false}={}){
 }
 
 /* ---------- unit formatting ---------- */
+export const M_PER_YD = 0.9144, SQM_PER_SQYD = 0.83612736;
+export const toYd   = m  => m/M_PER_YD;
+export const toSqYd = m2 => m2/SQM_PER_SQYD;
 export function fmtLen(m, units){
   if(units==='ft'){ const ft=m/0.3048; return ft>=5280 ? (ft/5280).toFixed(2)+' mi' : (ft<100?ft.toFixed(1):Math.round(ft).toLocaleString())+' ft'; }
+  if(units==='yd'){ const yd=toYd(m); return yd>=1760 ? (yd/1760).toFixed(2)+' mi' : (yd<100?yd.toFixed(1):Math.round(yd).toLocaleString())+' yd'; }
   return m>=1000 ? (m/1000).toFixed(2)+' km' : (m<100?m.toFixed(1):Math.round(m).toLocaleString())+' m';
 }
 export function fmtArea(m2, units){
   if(units==='ft'){ const ac=m2/4046.8564; return ac>=0.1 ? ac.toFixed(2)+' ac' : Math.round(m2/0.09290304).toLocaleString()+' sq ft'; }
+  /* square yards all the way up: in yard mode the number you want is the one you order blanket by */
+  if(units==='yd'){ const sy=toSqYd(m2); return (sy<100?sy.toFixed(1):Math.round(sy).toLocaleString())+' sq yd'; }
   const ha=m2/10000; return ha>=0.1 ? ha.toFixed(2)+' ha' : Math.round(m2).toLocaleString()+' m²';
 }
 export const fmtLL = (lat,lon) => `${lat.toFixed(6)}, ${lon.toFixed(6)}`;

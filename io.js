@@ -35,15 +35,16 @@ function rows(data,xf){
 
 function csv(data,xf){
   const q=v=>{ v=v==null?'':String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const out=[['layer','type','name','notes','latitude','longitude','length_ft','length_m','area_acres','area_sqft','area_m2','gps_accuracy_m','created','wkt']];
+  const out=[['layer','type','name','notes','latitude','longitude','length_ft','length_yd','length_m','area_acres','area_sqft','area_sqyd','area_m2','gps_accuracy_m','created','wkt']];
   for(const r of rows(data,xf)){ const s=r.st;
     out.push([r.lay.name, r.f.type==='line'&&r.f.arrow?'arrow':r.f.type, r.name, r.f.note, r.lat.toFixed(7), r.lon.toFixed(7),
-      s.len!=null?(s.len/0.3048).toFixed(1):'', s.len!=null?s.len.toFixed(2):'',
-      s.area!=null?(s.area/4046.8564).toFixed(4):'', s.area!=null?(s.area/0.09290304).toFixed(0):'', s.area!=null?s.area.toFixed(1):'',
+      s.len!=null?(s.len/0.3048).toFixed(1):'', s.len!=null?(s.len/0.9144).toFixed(1):'', s.len!=null?s.len.toFixed(2):'',
+      s.area!=null?(s.area/4046.8564).toFixed(4):'', s.area!=null?(s.area/0.09290304).toFixed(0):'',
+      s.area!=null?(s.area/0.83612736).toFixed(1):'', s.area!=null?s.area.toFixed(1):'',
       r.f.gps?r.f.gps.acc.toFixed(1):'', r.f.t?new Date(r.f.t).toISOString():'', wkt(r.geom)]); }
   for(const t of data.tracks){ if(t.pts.length<2) continue;
     const len=trackLen(t);
-    out.push(['Trails','trail',t.name,'',t.pts[0][0],t.pts[0][1],(len/0.3048).toFixed(1),len.toFixed(2),'','','','',new Date(t.start).toISOString(),
+    out.push(['Trails','trail',t.name,'',t.pts[0][0],t.pts[0][1],(len/0.3048).toFixed(1),(len/0.9144).toFixed(1),len.toFixed(2),'','','','','',new Date(t.start).toISOString(),
       `LINESTRING (${t.pts.map(p=>p[1]+' '+p[0]).join(', ')})`]); }
   return '﻿'+out.map(r=>r.map(q).join(',')).join('\r\n');
 }

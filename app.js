@@ -60,7 +60,13 @@ async function renderLib(){
   const stored=(await listMaps().catch(()=>[])).map(normalizeMap).sort((a,b)=>b.created-a.created);
   const box=$('cards'); box.innerHTML='';
   $('empty').classList.toggle('gone', stored.length>0);
-  stored.forEach((m,i)=>{
+  /* the search box earns its space once the library is more than a handful */
+  $('libsearch').classList.toggle('gone', stored.length<4);
+  const q=(stored.length<4?'':($('q').value||'')).trim().toLowerCase();
+  $('qx').classList.toggle('gone', !q);
+  const shown = q ? stored.filter(m=>(m.name+' '+tagOf(m)[0]+' '+(m.site||'')).toLowerCase().includes(q)) : stored;
+  $('nohits').classList.toggle('gone', !(q && !shown.length));
+  shown.forEach((m,i)=>{
     const T=fitOf(m), [tag,cls]=tagOf(m);
     const meta = T ? `${fmtLen(T.mPerPx*m.imgW,S.set.units)} × ${fmtLen(T.mPerPx*m.imgH,S.set.units)}` : 'Open to calibrate with pins';
     const card=h('div',{class:'card',style:{animationDelay:(i*50)+'ms'}},
@@ -73,6 +79,8 @@ async function renderLib(){
   });
 }
 A.renderLib=renderLib;
+$('q').addEventListener('input',()=>renderLib());
+$('qx').onclick=()=>{ $('q').value=''; renderLib(); $('q').focus(); };
 
 function mapOptions(m){
   const row=(icon,label,fn,cls='')=>h('div',{class:'row tap '+cls,onclick:fn},h('span',{html:ICON[icon]}),h('div',{class:'rm'},h('div',{class:'r1'},label)));
@@ -308,12 +316,17 @@ function drawScale(){
   const sc=$('scale');
   if(!S.xf){ sc.style.visibility='hidden'; return; }
   sc.style.visibility='';
-  const metres=Math.min(110,S.W*.28)*S.xf.mPerPx/S.view.s, ft=S.set.units==='ft';
-  const steps = ft ? [1,2,5,10,25,50,100,200,300,500,1000,2000,5280,10560] : [0.5,1,2,5,10,20,50,100,200,500,1000,2000,5000];
-  const val = ft ? metres/0.3048 : metres;
-  let pick=steps[0]; for(const s of steps) if(s<=val) pick=s;
-  $('sline').style.width=((ft?pick*0.3048:pick)/S.xf.mPerPx*S.view.s)+'px';
-  $('stxt').textContent = ft ? (pick>=5280?(pick/5280)+' mi':pick+' ft') : (pick>=1000?(pick/1000)+' km':pick+' m');
+  const metres=Math.min(110,S.W*.28)*S.xf.mPerPx/S.view.s, u=S.set.units;
+  const SC = {
+    ft:{per:0.3048, steps:[1,2,5,10,25,50,100,200,300,500,1000,2000,5280,10560], big:5280, bigName:'mi', name:'ft'},
+    yd:{per:0.9144, steps:[1,2,5,10,25,50,100,200,300,500,880,1760,3520],        big:1760, bigName:'mi', name:'yd'},
+    m: {per:1,      steps:[0.5,1,2,5,10,20,50,100,200,500,1000,2000,5000],       big:1000, bigName:'km', name:'m'},
+  }[u] || null;
+  const C = SC || {per:1,steps:[1,10,100,1000],big:1000,bigName:'km',name:'m'};
+  const val = metres/C.per;
+  let pick=C.steps[0]; for(const s of C.steps) if(s<=val) pick=s;
+  $('sline').style.width=(pick*C.per/S.xf.mPerPx*S.view.s)+'px';
+  $('stxt').textContent = pick>=C.big ? (pick/C.big)+' '+C.bigName : pick+' '+C.name;
 }
 
 /* ===================== gestures ===================== */
@@ -463,7 +476,7 @@ function menu(){
       h('div',{class:'rm'},h('div',{class:'r1'},l1), l2?h('div',{class:'r2'},l2):null));
   const calTxt = !S.xf ? 'Not calibrated yet' : S.map.geoSrc==='pdf' ? 'Georeferenced from the PDF'
                : S.map.geoSrc==='aerial' ? 'Georeferenced aerial' : `${S.map.ctrl.length} pins`+(S.xf.rms!=null?` · typical error ${fmtLen(S.xf.rms,S.set.units)}`:'');
-  const unit=u=>h('button',{class:'chip'+(S.set.units===u?' on':''),onclick:e=>{ S.set.units=u; saveSet(); updateReadout(); A.refreshCtx(); render(); e.currentTarget.parentNode.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); e.currentTarget.classList.add('on'); }},u==='ft'?'Feet / acres':'Meters / hectares');
+  const unit=u=>h('button',{class:'chip'+(S.set.units===u?' on':''),onclick:e=>{ S.set.units=u; saveSet(); updateReadout(); A.refreshCtx(); render(); e.currentTarget.parentNode.querySelectorAll('.chip').forEach(c=>c.classList.remove('on')); e.currentTarget.classList.add('on'); }},{ft:'Feet / acres',yd:'Yards / sq yd',m:'Meters / hectares'}[u]);
   const lab=h('button',{class:'tog'+(S.set.labels?' on':''),onclick:()=>{ S.set.labels=!S.set.labels; lab.classList.toggle('on',S.set.labels); saveSet(); render(); }});
   sheet(S.map.name, h('div',{},
     row('share','Export and share','CSV, KML, GeoJSON, GPX, image, site file',()=>A.exportSheet()),
@@ -474,7 +487,7 @@ function menu(){
       const r=await dialog({title:'Rename map',fields:[{name:'n',value:S.map.name}],ok:'Save'});
       if(r&&r.n.trim()){ S.map.name=r.n.trim(); A.saveMap(); updateReadout(); } }),
     row('polygon','Show whole map',null,()=>{ closeSheet(); setFollow(false); A.fitMap(); }),
-    h('div',{class:'sec'},'Units'), h('div',{class:'chips'},unit('ft'),unit('m')),
+    h('div',{class:'sec'},'Units'), h('div',{class:'chips'},unit('ft'),unit('yd'),unit('m')),
     h('div',{class:'sec'},'Display'),
     h('div',{class:'row'},h('div',{class:'rm'},h('div',{class:'r1'},'Show names on the map')),lab),
     h('div',{class:'note'},`Field Locator ${VERSION}`+(S.map.credit?` · ${S.map.credit}`:''))));

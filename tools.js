@@ -1,6 +1,6 @@
 /* ============ drawing tools, layers, selection/editing, undo ============ */
-import { S, A, ICON, PALETTE } from './state.js';
-import { $, h, uid, toast, sheet, closeSheet, dialog, fmtLen, fmtArea, fmtLL } from './ui.js';
+import { S, A, ICON, PALETTE, saveSet } from './state.js';
+import { $, h, uid, toast, sheet, closeSheet, dialog, fmtLen, fmtArea, fmtLL, toSqYd } from './ui.js';
 import { pathLength, polyArea } from './geo.js';
 
 const TOOLS=[
@@ -473,6 +473,46 @@ function swatches(cur,fn,withLayer){
   PALETTE.forEach(c=>box.append(mk(c,c,c)));
   return box;
 }
+/* ---- erosion control blanket: area (or a run of given width) to rolls ---- */
+function blanketBlock(f, st){
+  const byArea = st.area!=null;
+  if(!byArea && st.len==null) return null;
+  const sub=h('div',{class:'r2'},'');
+  const sum=h('div',{class:'bsum'},'');
+  const panel=h('div',{class:'blkp'});
+  const head=h('div',{class:'row tap',onclick:()=>{ const on=panel.classList.toggle('open'); head.classList.toggle('open',on); }},
+    h('span',{html:ICON.measure}), h('div',{class:'rm'},h('div',{class:'r1'},'Erosion blanket'),sub),
+    h('span',{class:'bchev',html:ICON.back}));
+  const n = v => Number.isFinite(+v) ? +v : 0;
+  const calc = () => {
+    const roll=Math.max(1,n(S.set.roll)||100), olap=Math.max(0,Math.min(90,n(S.set.olap))), bw=Math.max(.5,n(S.set.bw)||8);
+    const areaM2 = byArea ? st.area : st.len*bw*0.3048;
+    const sy=toSqYd(areaM2), need=sy*(1+olap/100);
+    return {roll,olap,bw,sy,need,rolls:Math.ceil(need/roll)};
+  };
+  const r0 = v => v<100 ? v.toFixed(1) : Math.round(v).toLocaleString();
+  const refresh = () => {
+    const c=calc();
+    sub.textContent = `${c.rolls} roll${c.rolls===1?'':'s'} · ${r0(c.need)} sq yd`;
+    sum.textContent = byArea
+      ? `${r0(c.sy)} sq yd + ${c.olap}% overlap = ${r0(c.need)} sq yd ÷ ${c.roll} per roll → ${c.rolls}`
+      : `${fmtLen(st.len,'yd')} × ${c.bw} ft wide = ${r0(c.sy)} sq yd + ${c.olap}% = ${r0(c.need)} ÷ ${c.roll} → ${c.rolls}`;
+  };
+  const num=(label,key,hint)=>{
+    const i=h('input',{class:'inp sm',type:'number',inputMode:'decimal',step:'any',value:S.set[key],
+      oninput:e=>{ S.set[key]=e.target.value===''?'':+e.target.value; saveSet(); refresh(); }});
+    return h('label',{class:'fld sm'},h('span',{},label),i,hint?h('i',{},hint):null);
+  };
+  panel.append(
+    h('div',{class:'brow3'},
+      num('Roll covers','roll','sq yd'),
+      num('Overlap','olap','%'),
+      byArea?null:num('Strip width','bw','ft')),
+    h('div',{class:'note tight'},'Standard S75 single-net straw is 8 ft × 112.5 ft = 100 sq yd a roll. Overlap is your allowance, not a spec.'));
+  refresh();
+  return h('div',{class:'blk'},head,sum,panel);
+}
+
 function openDetails(f){
   const ch=()=>{ commitSoon(); refreshCtx(); };
   const fld=(label,node)=>h('label',{class:'fld'},h('span',{},label),node);
@@ -489,6 +529,7 @@ function openDetails(f){
   const tog=(val,fn)=>{ const b=h('button',{class:'tog'+(val?' on':''),onclick:()=>{ const v=!b.classList.contains('on'); b.classList.toggle('on',v); fn(v); }}); return b; };
   sheet(f.type==='text'?'Text':({point:'Pin',line:f.arrow?'Arrow':'Line',polygon:'Area',circle:'Circle'}[f.type]), h('div',{},
     stat.children.length?stat:null,
+    shape?blanketBlock(f,st):null,
     fld(f.type==='text'?'Text':'Name',name), fld('Notes',note),
     fld('Layer',chips(S.data.layers.map(l=>[l.id,l.name]),layerOf(f).id,v=>{ f.layer=v; ch(); })),
     fld('Color',swatches(f.color||null,v=>{ if(v) f.color=v; else delete f.color; ch(); },layerOf(f).color)),
@@ -506,10 +547,35 @@ function openDetails(f){
 /* ===================== layers sheet ===================== */
 $('layersb').onclick=()=>openLayers();
 function openLayers(){
-  const body=h('div',{});
+  let q='';
+  const list=h('div',{});
+  const search=h('input',{class:'srch',type:'search',placeholder:'Search pins, shapes and notes',autocomplete:'off',spellcheck:'false',
+    oninput:e=>{ q=e.target.value.trim().toLowerCase(); draw(); }});
+  const clear=h('button',{class:'qx gone','aria-label':'Clear search',onclick:()=>{ search.value=''; q=''; draw(); search.focus(); }},'\u2715');
+  const srow=h('div',{class:'srchwrap'},h('span',{class:'si',html:ICON.search}),search,clear);
+  const hay = f => [f.name,f.text,f.note,layerOf(f).name].filter(Boolean).join(' ').toLowerCase();
+  const snip = f => { const n=f.note||''; if(!n) return null;
+    const i=n.toLowerCase().indexOf(q); if(i<0) return null;
+    const a=Math.max(0,i-18); return (a?'\u2026':'')+n.slice(a,a+54).trim()+(a+54<n.length?'\u2026':''); };
+  const frow=(f,L,searching)=>h('div',{class:'frow',onclick:()=>{ if(window.innerWidth<900) closeSheet();
+      if(L.visible===false) L.visible=true; A.selectFeature(f.id,true); }},
+    h('span',{html:ICON[TYPE_ICON[f.type]],style:{color:colorOf(f)}}),
+    h('span',{class:'fn'},f.type==='text'?(f.text||'Text'):(f.name||'Unnamed')),
+    h('span',{class:'fs'}, searching ? (snip(f)||L.name)
+      : (f.type==='point'||f.type==='text'?L.name:statsText(f).split(' \u00b7 ')[0])));
   const draw=()=>{
-    body.innerHTML='';
-    body.append(h('div',{class:'sec'},'Layers · tap one to draw on it'));
+    list.innerHTML='';
+    clear.classList.toggle('gone',!q);
+    srow.classList.toggle('gone', !feats().length);
+    if(q){
+      const hits=feats().filter(f=>hay(f).includes(q));
+      list.append(h('div',{class:'sec'}, hits.length?`${hits.length} match${hits.length===1?'':'es'}`:'No match'));
+      if(hits.length) for(const f of hits) list.append(frow(f,layerOf(f),true));
+      else list.append(h('div',{class:'note'},'Nothing matches that. Search looks at names, text and notes.'));
+      return;
+    }
+    const body=list;
+    body.append(h('div',{class:'sec'},'Layers \u00b7 tap one to draw on it'));
     for(const L of S.data.layers){
       const n=feats().filter(f=>layerOf(f)===L).length, act=L.id===S.data.activeLayer;
       body.append(h('div',{class:'row tap'+(act?' act':''),onclick:()=>{ S.data.activeLayer=L.id; A.saveData(); refreshCtx(); draw(); }},
@@ -526,15 +592,11 @@ function openLayers(){
       h('span',{html:ICON.plus}),h('div',{class:'rm'},h('div',{class:'r1'},'Add layer'))));
     if(feats().length){
       body.append(h('div',{class:'sec'},'On this map'));
-      for(const L of S.data.layers) for(const f of feats().filter(x=>layerOf(x)===L)){
-        const ic=h('span',{html:ICON[TYPE_ICON[f.type]],style:{color:colorOf(f)}});
-        body.append(h('div',{class:'frow',onclick:()=>{ if(window.innerWidth<900) closeSheet(); if(L.visible===false){ L.visible=true; } A.selectFeature(f.id,true); }},
-          ic,h('span',{class:'fn'},f.type==='text'?(f.text||'Text'):(f.name||'Unnamed')),h('span',{class:'fs'},f.type==='point'||f.type==='text'?L.name:statsText(f).split(' · ')[0])));
-      }
+      for(const L of S.data.layers) for(const f of feats().filter(x=>layerOf(x)===L)) body.append(frow(f,L,false));
     } else body.append(h('div',{class:'note'},'Nothing drawn yet. Pick a tool from the bar at the bottom.'));
   };
   draw();
-  sheet('Layers',body);
+  sheet('Layers',h('div',{},srow,list));
 }
 A.openLayers=openLayers;
 function editLayer(L){
