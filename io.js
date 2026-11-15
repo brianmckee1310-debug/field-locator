@@ -1,6 +1,6 @@
 /* ============ exports and imports ============ */
-import { S, A, ICON, VERSION, DEFAULT_LAYERS } from './state.js';
-import { h, uid, toast, sheet, closeSheet, saveFile, esc } from './ui.js';
+import { S, A, ICON, VERSION, DEFAULT_LAYERS, PALETTE } from './state.js';
+import { h, uid, toast, sheet, closeSheet, dialog, saveFile, esc } from './ui.js';
 import { getMap, getData, putMap, putData } from './store.js';
 import { featureStats } from './tools.js';
 import { trackLen } from './track.js';
@@ -169,4 +169,151 @@ A.exportSheet=function(){
     row('rect','Picture of the map with drawings (JPG)','To text, email or print',exportImage),
     row('share','Site file (.fieldmap)','Map, drawings and trails in one file — open it on your PC or send it to a colleague',()=>A.exportSite(S.map))));
 };
+
+/* ===================== importing drawings (KML, KMZ, GeoJSON) ===================== */
+/* enough of a zip reader for a KMZ, which is one deflated .kml in a zip */
+async function unzipKml(bytes){
+  const dv=new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let eo=-1;
+  for(let i=bytes.length-22; i>=Math.max(0,bytes.length-66000); i--)
+    if(dv.getUint32(i,true)===0x06054b50){ eo=i; break; }
+  if(eo<0) throw new Error('That .kmz could not be opened.');
+  const n=dv.getUint16(eo+10,true);
+  let p=dv.getUint32(eo+16,true);
+  for(let i=0;i<n;i++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true);
+    const nlen=dv.getUint16(p+28,true), elen=dv.getUint16(p+30,true), clen=dv.getUint16(p+32,true);
+    const lho=dv.getUint32(p+42,true);
+    const name=new TextDecoder().decode(bytes.subarray(p+46,p+46+nlen));
+    p+=46+nlen+elen+clen;
+    if(!/\.kml$/i.test(name)) continue;
+    const lnlen=dv.getUint16(lho+26,true), lelen=dv.getUint16(lho+28,true);
+    const data=bytes.subarray(lho+30+lnlen+lelen, lho+30+lnlen+lelen+csize);
+    if(method===0) return new TextDecoder().decode(data);
+    if(typeof DecompressionStream==='undefined') throw new Error('This browser cannot open a .kmz. Unzip it and import the .kml inside.');
+    const buf=await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    return new TextDecoder().decode(buf);
+  }
+  throw new Error('No .kml was found inside that .kmz.');
+}
+
+const okLL = c => Array.isArray(c) && isFinite(c[0]) && isFinite(c[1]) && Math.abs(c[1])<=90 && Math.abs(c[0])<=180;
+
+function fromGeoJSON(j){
+  const out=[];
+  const txt=v=>v==null?'':String(v);
+  const nameOf=p=>txt((p&&(p.name||p.Name||p.NAME||p.title||p.label))||'');
+  const noteOf=p=>{
+    if(!p) return '';
+    if(p.description||p.desc||p.note) return txt(p.description||p.desc||p.note);
+    const keep=Object.entries(p).filter(([k])=>!/^(name|Name|NAME|title|label|description|desc|note|styleUrl)$/.test(k));
+    return keep.slice(0,8).map(([k,v])=>`${k}: ${txt(v)}`).join('\n');
+  };
+  const geom=(g,nm,nt)=>{
+    if(!g) return;
+    const t=g.type, c=g.coordinates;
+    if(t==='GeometryCollection'){ (g.geometries||[]).forEach(x=>geom(x,nm,nt)); return; }
+    if(t==='Point'){ if(okLL(c)) out.push({kind:'point',coords:[c],name:nm,note:nt}); return; }
+    if(t==='MultiPoint'){ (c||[]).forEach(p=>okLL(p)&&out.push({kind:'point',coords:[p],name:nm,note:nt})); return; }
+    if(t==='LineString'){ const a=(c||[]).filter(okLL); if(a.length>1) out.push({kind:'line',coords:a,name:nm,note:nt}); return; }
+    if(t==='MultiLineString'){ (c||[]).forEach(l=>geom({type:'LineString',coordinates:l},nm,nt)); return; }
+    if(t==='Polygon'){ const a=((c||[])[0]||[]).filter(okLL); if(a.length>2) out.push({kind:'polygon',coords:a,name:nm,note:nt}); return; }
+    if(t==='MultiPolygon'){ (c||[]).forEach(poly=>geom({type:'Polygon',coordinates:poly},nm,nt)); return; }
+  };
+  const feat=f=>{ if(!f) return; geom(f.geometry, nameOf(f.properties), noteOf(f.properties)); };
+  if(j.type==='FeatureCollection') (j.features||[]).forEach(feat);
+  else if(j.type==='Feature') feat(j);
+  else geom(j,'','');
+  return out;
+}
+
+function fromKML(txt){
+  const doc=new DOMParser().parseFromString(txt,'application/xml');
+  if(doc.getElementsByTagName('parsererror').length) throw new Error('That KML could not be read.');
+  const first=(el,tag)=>{ const n=el.getElementsByTagName(tag); return n.length?n[0]:null; };
+  const text=(el,tag)=>{ const n=first(el,tag); return n?(n.textContent||'').trim():''; };
+  const coords=el=>{
+    const c=text(el,'coordinates');
+    return c.split(/\s+/).map(s=>s.split(',')).map(a=>[parseFloat(a[0]),parseFloat(a[1])]).filter(okLL);
+  };
+  const out=[];
+  for(const pm of doc.getElementsByTagName('Placemark')){
+    const nm=text(pm,'name');
+    let nt=text(pm,'description');
+    if(!nt){
+      const sd=pm.getElementsByTagName('SimpleData');
+      nt=[...sd].slice(0,8).map(e=>`${e.getAttribute('name')}: ${(e.textContent||'').trim()}`).join('\n');
+    }
+    nt=nt.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,600);
+    for(const el of pm.getElementsByTagName('Point')){ const c=coords(el); if(c.length) out.push({kind:'point',coords:[c[0]],name:nm,note:nt}); }
+    for(const el of pm.getElementsByTagName('LineString')){ const c=coords(el); if(c.length>1) out.push({kind:'line',coords:c,name:nm,note:nt}); }
+    for(const el of pm.getElementsByTagName('Polygon')){
+      const ob=first(el,'outerBoundaryIs')||el;
+      const c=coords(ob); if(c.length>2) out.push({kind:'polygon',coords:c,name:nm,note:nt});
+    }
+  }
+  return out;
+}
+
+A.importDrawings=async function(file){
+  try{
+    if(!S.map){ toast('Open a map first'); return; }
+    if(!S.xf){ await dialogNeedsCalib(); return; }
+    const nm=(file.name||'').toLowerCase();
+    A.busy(20,'Reading…');
+    let items;
+    if(nm.endsWith('.kmz')) items=fromKML(await unzipKml(new Uint8Array(await file.arrayBuffer())));
+    else{
+      const txt=await file.text();
+      if(nm.endsWith('.kml')||/^\s*<\?xml|<kml/i.test(txt)) items=fromKML(txt);
+      else{
+        let j; try{ j=JSON.parse(txt); }catch(e){ throw new Error('That file is not KML or GeoJSON.'); }
+        if(j&&j.format==='field-locator-site'){ A.busyOff(); await A.importFile(file); return; }
+        items=fromGeoJSON(j);
+      }
+    }
+    A.busy(60,'Placing…');
+    if(!items.length){ A.busyOff(); await dialog({title:'Nothing to import',text:'No pins, lines or areas were found in that file.',cancel:null}); return; }
+
+    const W=S.map.imgW, H=S.map.imgH, pad=Math.max(W,H)*0.35;
+    const name=(file.name||'Imported').replace(/\.[a-z0-9]+$/i,'').replace(/[_-]+/g,' ').trim().slice(0,40)||'Imported';
+    const used=S.data.layers.map(l=>l.color);
+    const col=PALETTE.find(c=>!used.includes(c)&&c!=='#ffffff')||PALETTE[0];
+    let lname=name.slice(0,40);
+    for(let i=2; S.data.layers.some(l=>l.name===lname); i++) lname=(name.slice(0,36)+' '+i);
+    const layer={id:uid('l'), name:lname, color:col, visible:true};
+
+    let added=0, away=0;
+    for(const it of items){
+      const pts=it.coords.map(c=>{ const p=S.xf.toPix(c[1],c[0]); return [p.x,p.y]; });
+      const inside=pts.some(p=>p[0]>-pad&&p[1]>-pad&&p[0]<W+pad&&p[1]<H+pad);
+      if(!inside){ away++; continue; }
+      S.data.features.push({ id:uid('f'), type:it.kind, layer:layer.id,
+        name:(it.name||'').slice(0,60), note:(it.note||'').slice(0,600), t:Date.now(),
+        pts, ...(it.kind==='polygon'?{fill:0.2}:{}) });
+      added++;
+    }
+    A.busyOff();
+    if(!added){
+      await dialog({title:'Nothing landed on this map',
+        text:`All ${items.length} item${items.length===1?'':'s'} sit well outside this map's area. Check it is the right site.`,cancel:null});
+      return;
+    }
+    S.data.layers.push(layer);
+    S.data.activeLayer=layer.id;
+    A.commit();
+    A.render();
+    closeSheet();
+    toast(`${added} item${added===1?'':'s'} on a new “${layer.name}” layer`+(away?` · ${away} were off this map`:''),5000);
+  }catch(err){
+    A.busyOff();
+    await dialog({title:'Couldn’t import that',text:err.message||String(err),cancel:null});
+  }
+};
+async function dialogNeedsCalib(){
+  await dialog({title:'Calibrate first',
+    text:'Pins and shapes are placed by their coordinates, so this map needs to be on the ground before anything can be imported onto it.',cancel:null});
+}
+
 export function initIO(){}

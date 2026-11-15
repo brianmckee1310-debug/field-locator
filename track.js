@@ -123,6 +123,7 @@ function editTrack(t){
     h('label',{class:'fld'},h('span',{},'Name'),name),
     S.xf?row('target','Show on map',()=>{ closeSheet(); t.visible=true;
       const P=t.pts.map(p=>S.xf.toPix(p[0],p[1])); A.zoomToBox(Math.min(...P.map(p=>p.x)),Math.min(...P.map(p=>p.y)),Math.max(...P.map(p=>p.x)),Math.max(...P.map(p=>p.y))); }):null,
+    S.xf?row('polygon','Covered area from a swath',async()=>{ closeSheet(); await A.coverSheet(t.pts.map(p=>[p[0],p[1]]), t.name); }):null,
     S.xf?row('line','Copy to a line I can edit',()=>{ const P=t.pts.map(p=>{ const q=S.xf.toPix(p[0],p[1]); return [q.x,q.y]; });
       S.data.features.push({id:uid('f'),type:'line',layer:S.data.activeLayer,name:t.name,note:'',t:Date.now(),pts:P}); A.commit(); closeSheet(); A.render(); toast('Added as a line on the active layer'); }):null,
     row('share','Export this trail (GPX)',()=>A.exportTrackGPX(t)),

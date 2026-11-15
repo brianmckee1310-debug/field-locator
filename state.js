@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.4';
+export const VERSION = '3.5';
 
 export const S = {
   map:null,            // current map record

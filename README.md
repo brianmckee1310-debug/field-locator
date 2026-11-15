@@ -21,6 +21,10 @@ Live: https://brianmckee1310-debug.github.io/field-locator/
 - **Breadcrumb trails** at an interval you choose.
 - **Exports**: CSV, KML, GeoJSON, GPX, a picture of the map with drawings, and a `.fieldmap` site file
   that carries the map, drawings and trails to another device or person.
+- **Imports**: KML, KMZ and GeoJSON land on the open map as pins, lines and areas on a new layer.
+- **Covered area**: give a trail or a line a working width -- mower deck, spray boom, blanket width --
+  and get the swath back as an area. The outline is an offset buffer; the figure is measured by
+  rasterising the swath, so ground crossed twice is counted once.
 - **Offline**: once opened, everything is cached. Maps and data stay on the device.
 
 ## Calibration
@@ -51,6 +55,7 @@ footer and margin legend exact rather than a guess.
 | `geo.js` | GeoPDF extraction, transforms, geometry |
 | `mosaic.js` | Multi-sheet sites: neatline crop and reprojection into one raster |
 | `sheets.js` | Sheets panel, masking a key, rebuilding a combined map |
+| `coverage.js` | A walked line plus a width -> the ground it covered |
 | `store.js`, `state.js`, `ui.js` | Storage, shared state, UI helpers |
 | `sw.js` | Offline caching. Bump `CACHE` on every release. |
 

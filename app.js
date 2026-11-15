@@ -1,6 +1,7 @@
 import { extractGeo, geoScanner, fitTransform, dist } from './geo.js';
 import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers } from './mosaic.js';
 import { initSheets } from './sheets.js';
+import { initCoverage } from './coverage.js';
 import { listMaps, getMap, putMap, deleteMap, getData, putData } from './store.js';
 import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS, orderLayers } from './state.js';
 import { $, h, clamp, uid, toast, sheet, closeSheet, sheetOpen, dialog, fmtLen, fmtLL } from './ui.js';
@@ -662,6 +663,7 @@ function menu(){
   const lab=h('button',{class:'tog'+(S.set.labels?' on':''),onclick:()=>{ S.set.labels=!S.set.labels; lab.classList.toggle('on',S.set.labels); saveSet(); render(); }});
   sheet(S.map.name, h('div',{},
     row('share','Export and share','CSV, KML, GeoJSON, GPX, image, site file',()=>A.exportSheet()),
+    row('plus','Import drawings','KML, KMZ or GeoJSON onto this map',()=>{ closeSheet(); $('dfile').click(); }),
     S.map.sheets&&S.map.sheets.length?row('layers','Sheets',
       `${S.map.sheets.length} joined \u00b7 hide a key, rebuild`,()=>A.openSheets()):null,
     row('calib','Calibrate',calTxt,()=>{ closeSheet(); A.enterCalib(); }),
@@ -696,7 +698,8 @@ window.FieldLocator={
 };
 
 /* ===================== boot ===================== */
-initTools(); initCalib(); initTrack(); initIO(); initAerial(); initSheets();
+initTools(); initCalib(); initTrack(); initIO(); initAerial(); initSheets(); initCoverage();
+$('dfile').onchange=async e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=''; if(f) await A.importDrawings(f); };
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,260));
 document.addEventListener('gesturestart',e=>e.preventDefault());

@@ -536,6 +536,11 @@ function openDetails(f){
   sheet(f.type==='text'?'Text':({point:'Pin',line:f.arrow?'Arrow':'Line',polygon:'Area',circle:'Circle'}[f.type]), h('div',{},
     stat.children.length?stat:null,
     shape?blanketBlock(f,st):null,
+    (f.type==='line'&&S.xf)?h('div',{class:'row tap',onclick:async()=>{ closeSheet();
+      await A.coverSheet(f.pts.map(([x,y])=>{ const g=S.xf.toGeo(x,y); return [g.lat,g.lon]; }), f.name||'this line'); }},
+      h('span',{html:ICON.polygon}),
+      h('div',{class:'rm'},h('div',{class:'r1'},'Covered area from a swath'),
+        h('div',{class:'r2'},'Mower deck, spray boom, blanket width'))):null,
     fld(f.type==='text'?'Text':'Name',name), fld('Notes',note),
     fld('Layer',chips(S.data.layers.map(l=>[l.id,l.name]),layerOf(f).id,v=>{ f.layer=v; ch(); })),
     fld('Color',swatches(f.color||null,v=>{ if(v) f.color=v; else delete f.color; ch(); },layerOf(f).color)),
