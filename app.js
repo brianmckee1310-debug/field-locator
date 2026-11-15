@@ -2,6 +2,7 @@ import { extractGeo, geoScanner, fitTransform, dist } from './geo.js';
 import { sheetFit, cropRect, planMosaic, drawMosaic, mosaicCtrl, outliers } from './mosaic.js';
 import { initSheets } from './sheets.js';
 import { initCoverage } from './coverage.js';
+import { initPhotos } from './photos.js';
 import { listMaps, getMap, putMap, deleteMap, getData, putData } from './store.js';
 import { S, A, ICON, VERSION, loadSet, saveSet, DEFAULT_LAYERS, orderLayers } from './state.js';
 import { $, h, clamp, uid, toast, sheet, closeSheet, sheetOpen, dialog, fmtLen, fmtLL } from './ui.js';
@@ -374,6 +375,7 @@ async function openMap(m){
   const d=await getData(m.id).catch(()=>null);
   S.data={ layers:orderLayers((d&&d.layers&&d.layers.length)?d.layers:DEFAULT_LAYERS()), features:(d&&d.features)||[], tracks:(d&&d.tracks)||[],
            activeLayer:(d&&d.activeLayer)||'mgmt' };
+  setTimeout(()=>{ A.sweepPhotos&&A.sweepPhotos().catch(()=>{}); }, 1500);
   if(!S.data.layers.find(l=>l.id===S.data.activeLayer)) S.data.activeLayer=S.data.layers[0].id;
   S.xf=fitOf(m);
   if(objUrl){ URL.revokeObjectURL(objUrl); objUrl=null; }
@@ -654,6 +656,14 @@ $('readout').onclick=async()=>{
 
 /* ===================== menu ===================== */
 $('menub').onclick=menu;
+function photoRow(){
+  const r=h('div',{class:'row'},h('span',{html:ICON.camera}),
+    h('div',{class:'rm'},h('div',{class:'r1'},'Photos'),h('div',{class:'r2'},'Counting\u2026')));
+  (A.photoLine?A.photoLine(S.map&&S.map.id):Promise.resolve(null)).then(t=>{
+    r.querySelector('.r2').textContent = t || 'None yet \u00b7 add them from a pin';
+  }).catch(()=>{ r.querySelector('.r2').textContent='\u2014'; });
+  return r;
+}
 function menu(){
   const row=(icon,l1,l2,fn)=>h('div',{class:'row tap',onclick:fn},h('span',{html:ICON[icon]}),
       h('div',{class:'rm'},h('div',{class:'r1'},l1), l2?h('div',{class:'r2'},l2):null));
@@ -664,6 +674,7 @@ function menu(){
   sheet(S.map.name, h('div',{},
     row('share','Export and share','CSV, KML, GeoJSON, GPX, image, site file',()=>A.exportSheet()),
     row('plus','Import drawings','KML, KMZ or GeoJSON onto this map',()=>{ closeSheet(); $('dfile').click(); }),
+    photoRow(),
     S.map.sheets&&S.map.sheets.length?row('layers','Sheets',
       `${S.map.sheets.length} joined \u00b7 hide a key, rebuild`,()=>A.openSheets()):null,
     row('calib','Calibrate',calTxt,()=>{ closeSheet(); A.enterCalib(); }),
@@ -698,7 +709,7 @@ window.FieldLocator={
 };
 
 /* ===================== boot ===================== */
-initTools(); initCalib(); initTrack(); initIO(); initAerial(); initSheets(); initCoverage();
+initTools(); initCalib(); initTrack(); initIO(); initAerial(); initSheets(); initCoverage(); initPhotos();
 $('dfile').onchange=async e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=''; if(f) await A.importDrawings(f); };
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',()=>setTimeout(resize,260));

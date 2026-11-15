@@ -22,6 +22,9 @@ Live: https://brianmckee1310-debug.github.io/field-locator/
 - **Exports**: CSV, KML, GeoJSON, GPX, a picture of the map with drawings, and a `.fieldmap` site file
   that carries the map, drawings and trails to another device or person.
 - **Imports**: KML, KMZ and GeoJSON land on the open map as pins, lines and areas on a new layer.
+- **Photos on a pin** (or any shape), stored on the device -- no service and no account. Each one is
+  scaled down on the way in, EXIF rotation honoured, and a pin that has photos shows a count. They
+  leave as their own ZIP with a CSV index, rather than bloating the site file.
 - **Covered area**: give a trail or a line a working width -- mower deck, spray boom, blanket width --
   and get the swath back as an area. The outline is an offset buffer; the figure is measured by
   rasterising the swath, so ground crossed twice is counted once.
@@ -56,11 +59,14 @@ footer and margin legend exact rather than a guess.
 | `mosaic.js` | Multi-sheet sites: neatline crop and reprojection into one raster |
 | `sheets.js` | Sheets panel, masking a key, rebuilding a combined map |
 | `coverage.js` | A walked line plus a width -> the ground it covered |
+| `photos.js` | Photos on a feature: capture, thumbnails, full-screen viewer |
 | `store.js`, `state.js`, `ui.js` | Storage, shared state, UI helpers |
 | `sw.js` | Offline caching. Bump `CACHE` on every release. |
 
 ## Data model
 
+- Store `photos` (DB v3): `{id, fid, mid, blob, thumb, w, h, t, name, lat, lon}`, indexed on `fid`
+  and `mid`. A feature carries only `photos: <count>`; the images are read when opened.
 - Store `maps`: `{id, name, blob, imgW, imgH, ctrl:[{px,py,lat,lon}], fit, geoSrc, origCtrl, thumb, site}`
   - a combined map also carries `sheets:[{name,file,page,scale,w,h,crop,ctrl,masks,visible}]`,
     `sources:[{name,blob}]` (the original PDFs, so it can be rebuilt without them being re-picked)

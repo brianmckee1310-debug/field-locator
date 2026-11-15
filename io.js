@@ -1,7 +1,7 @@
 /* ============ exports and imports ============ */
 import { S, A, ICON, VERSION, DEFAULT_LAYERS, PALETTE } from './state.js';
 import { h, uid, toast, sheet, closeSheet, dialog, saveFile, esc } from './ui.js';
-import { getMap, getData, putMap, putData } from './store.js';
+import { getMap, getData, putMap, putData, photosOfMap } from './store.js';
 import { featureStats } from './tools.js';
 import { trackLen } from './track.js';
 
@@ -167,8 +167,90 @@ A.exportSheet=function(){
     row('track','Trails and pins (GPX)','For GPS units and Avenza',()=>save(base+'.gpx',gpx(S.map,S.data,S.xf),'application/gpx+xml'),geo&&(nt||S.data.features.some(f=>f.type==='point'))),
     h('div',{class:'sec'},'Whole map'),
     row('rect','Picture of the map with drawings (JPG)','To text, email or print',exportImage),
-    row('share','Site file (.fieldmap)','Map, drawings and trails in one file — open it on your PC or send it to a colleague',()=>A.exportSite(S.map))));
+    row('share','Site file (.fieldmap)','Map, drawings and trails in one file — open it on your PC or send it to a colleague',()=>A.exportSite(S.map)),
+    photoExportRow()));
 };
+
+/* ---- photos out as a zip ---- */
+/* Photos stay on the device and are deliberately not inside the .fieldmap,
+   which would make it many times larger. They leave as their own zip, stored
+   rather than deflated, since a JPEG does not compress twice. */
+let CRCT=null;
+function crc32(buf){
+  if(!CRCT){ CRCT=new Uint32Array(256);
+    for(let i=0;i<256;i++){ let c=i; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; CRCT[i]=c>>>0; } }
+  let c=0xFFFFFFFF;
+  for(let i=0;i<buf.length;i++) c=CRCT[(c^buf[i])&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0;
+}
+function dosTime(d){
+  return [((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1))&0xFFFF,
+          (((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF];
+}
+async function zipStore(entries){
+  const parts=[], dir=[]; let off=0;
+  const enc=new TextEncoder();
+  for(const e of entries){
+    const nameB=enc.encode(e.name), data=new Uint8Array(await e.blob.arrayBuffer());
+    const crc=crc32(data), [t,dt]=dosTime(e.date||new Date());
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0,true);
+    lh.setUint16(8,0,true); lh.setUint16(10,t,true); lh.setUint16(12,dt,true);
+    lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true); lh.setUint32(22,data.length,true);
+    lh.setUint16(26,nameB.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer), nameB, data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true);
+    ch.setUint16(8,0,true); ch.setUint16(10,0,true); ch.setUint16(12,t,true); ch.setUint16(14,dt,true);
+    ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,nameB.length,true); ch.setUint32(42,off,true);
+    dir.push(new Uint8Array(ch.buffer), nameB);
+    off += 30+nameB.length+data.length;
+  }
+  const dirBytes=dir.reduce((n,p)=>n+p.length,0);
+  const eo=new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true);
+  eo.setUint16(8,entries.length,true); eo.setUint16(10,entries.length,true);
+  eo.setUint32(12,dirBytes,true); eo.setUint32(16,off,true);
+  return new Blob([...parts,...dir,new Uint8Array(eo.buffer)],{type:'application/zip'});
+}
+function photoExportRow(){
+  const r=h('div',{class:'row'},h('span',{html:ICON.camera}),
+    h('div',{class:'rm'},h('div',{class:'r1'},'Photos (ZIP)'),h('div',{class:'r2'},'Checking\u2026')));
+  const sub=r.querySelector('.r2');
+  photosOfMap(S.map.id).then(ps=>{
+    if(!ps.length){ sub.textContent='No photos on this map yet'; r.style.opacity=.4; return; }
+    const mb=ps.reduce((n,p)=>n+p.blob.size,0);
+    sub.textContent=`${ps.length} photo${ps.length===1?'':'s'} \u00b7 ${(mb/1048576).toFixed(1)} MB \u00b7 not included in the site file`;
+    r.classList.add('tap');
+    r.onclick=async()=>{
+      closeSheet();
+      try{
+        A.busy(10,'Packing photos\u2026');
+        const byF=new Map(S.data.features.map(f=>[f.id,f]));
+        const seen=new Set();
+        const entries=ps.sort((a,b)=>a.t-b.t).map((p,i)=>{
+          const f=byF.get(p.fid);
+          let base=slug((f&&(f.name||f.type))||'photo')||'photo';
+          let nm=`${String(i+1).padStart(3,'0')}-${base}.jpg`;
+          while(seen.has(nm)) nm='x'+nm;
+          seen.add(nm);
+          return {name:nm, blob:p.blob, date:new Date(p.t)};
+        });
+        const idx=['file,feature,notes,taken,latitude,longitude']
+          .concat(entries.map((e,i)=>{ const p=ps[i], f=byF.get(p.fid);
+            return [e.name, esc((f&&f.name)||''), esc((f&&f.note)||''),
+                    new Date(p.t).toISOString(), p.lat??'', p.lon??'']
+                   .map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','); })).join('\r\n');
+        entries.push({name:'photos.csv', blob:new Blob([idx],{type:'text/csv'}), date:new Date()});
+        const zip=await zipStore(entries);
+        A.busyOff();
+        await saveFile(`${slug(S.map.name)}-photos-${stamp()}.zip`, zip, {share:true});
+      }catch(err){ A.busyOff(); toast('Could not pack those photos'); }
+    };
+  }).catch(()=>{ sub.textContent='\u2014'; });
+  return r;
+}
 
 /* ===================== importing drawings (KML, KMZ, GeoJSON) ===================== */
 /* enough of a zip reader for a KMZ, which is one deflated .kml in a zip */

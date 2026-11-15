@@ -356,3 +356,44 @@ select.inp option{background:#1a221b}
 /* a sheet that has been turned off in the Sheets panel */
 .row.dim{opacity:.5}
 .row.dim .r1{text-decoration:line-through;text-decoration-thickness:1px}
+
+/* ---------------- photos ---------------- */
+.phwrap{margin:0 0 14px}
+.phstrip{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none}
+.phstrip::-webkit-scrollbar{display:none}
+.phthumb{flex:0 0 auto;width:78px;height:78px;border-radius:12px;border:1px solid var(--line);
+  background-size:cover;background-position:center;padding:0;
+  transition:transform .16s var(--ease)}
+.phthumb:active{transform:scale(.94)}
+.phadd{flex:0 0 auto;width:78px;height:78px;border-radius:12px;border:1px dashed var(--line);
+  background:rgba(255,255,255,.04);color:var(--dim);display:grid;place-items:center;gap:2px;
+  align-content:center;padding:0;transition:transform .16s var(--ease),background .2s ease}
+.phadd:active{transform:scale(.94);background:rgba(255,255,255,.09)}
+.phadd svg{width:21px;height:21px}
+.phadd i{font-style:normal;font-size:11px;font-weight:600}
+.phwrap.empty .phadd{width:100%}
+
+.phview{position:fixed;inset:0;z-index:95;background:#0a0c0b;display:grid;
+  grid-template-rows:auto 1fr auto;opacity:0;transition:opacity .22s ease;
+  padding:max(8px,env(safe-area-inset-top)) 0 max(10px,env(safe-area-inset-bottom))}
+.phview.show{opacity:1}
+.phbar{display:flex;align-items:center;gap:10px;padding:4px 10px}
+.phcount{flex:1;text-align:center;font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+.phbtn{width:40px;height:40px;border-radius:12px;border:0;background:rgba(255,255,255,.09);
+  color:var(--ink);display:grid;place-items:center;padding:0;transition:transform .14s ease}
+.phbtn:active{transform:scale(.9)}
+.phbtn.dng{color:var(--dng)}
+.phbtn svg{width:19px;height:19px}
+.phimg{grid-row:2;width:100%;height:100%;object-fit:contain;min-height:0;
+  -webkit-user-select:none;user-select:none;touch-action:pan-y}
+.phcap{text-align:center;font-size:12px;color:var(--dim);padding:8px 14px 2px;
+  font-variant-numeric:tabular-nums}
+.phnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:64px;border:0;padding:0;
+  background:rgba(255,255,255,.07);color:var(--ink);display:grid;place-items:center;z-index:2;
+  transition:background .2s ease}
+.phnav:active{background:rgba(255,255,255,.16)}
+.phnav.l{left:0;border-radius:0 14px 14px 0}
+.phnav.r{right:0;border-radius:14px 0 0 14px}
+.phnav.r svg{transform:rotate(180deg)}
+.phnav svg{width:22px;height:22px}

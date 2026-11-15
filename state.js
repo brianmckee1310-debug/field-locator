@@ -1,5 +1,5 @@
 /* ============ shared state, settings, icons ============ */
-export const VERSION = '3.5';
+export const VERSION = '3.6';
 
 export const S = {
   map:null,            // current map record
@@ -70,6 +70,7 @@ export const ICON = {
   gps:    P('<circle cx="12" cy="12" r="3" fill="currentColor"/><circle cx="12" cy="12" r="8"/>'),
   check:  P('<path d="M5 12.500l4.500 4.500L19 7.500"/>'),
   x:      P('<path d="M6 6l12 12M18 6L6 18"/>'),
+  camera: P('<path d="M3 8.5h3.4L8 6h8l1.6 2.5H21v10H3z"/><circle cx="12" cy="13" r="3.4"/>'),
   share:  P('<path d="M12 15V3M8 7l4-4 4 4M5 12v7h14v-7"/>'),
   calib:  P('<path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>'),
   plus:   P('<path d="M12 5v14M5 12h14"/>'),

@@ -172,6 +172,15 @@ function paintOne(ctx,f,T,s,k,now,isSel){
     ctx.beginPath(); ctx.arc(P[0].x,P[0].y,r+2.4*k,0,7); ctx.fillStyle='#fff'; ctx.fill();
     ctx.beginPath(); ctx.arc(P[0].x,P[0].y,r,0,7); ctx.fillStyle=col; ctx.fill();
     ctx.beginPath(); ctx.arc(P[0].x,P[0].y,r+2.4*k,0,7); ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=1*k; ctx.stroke();
+    if(f.photos){                       // a pin that has photos says so
+      const bx=P[0].x+r*0.95, by=P[0].y-r*0.95, br=5.4*k;
+      ctx.beginPath(); ctx.arc(bx,by,br,0,7); ctx.fillStyle='#fff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(bx,by,br-1.2*k,0,7); ctx.fillStyle='rgba(20,24,22,.9)'; ctx.fill();
+      ctx.fillStyle='#fff'; ctx.font=`600 ${6.6*k}px system-ui,sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(f.photos>9?'9+':String(f.photos), bx, by+0.3*k);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    }
     if(S.set.labels && f.name) label(ctx,f.name,P[0].x+r+6*k,P[0].y,k,'left');
     return;
   }
@@ -541,6 +550,7 @@ function openDetails(f){
       h('span',{html:ICON.polygon}),
       h('div',{class:'rm'},h('div',{class:'r1'},'Covered area from a swath'),
         h('div',{class:'r2'},'Mower deck, spray boom, blanket width'))):null,
+    f.type!=='text'?A.photoStrip(f):null,
     fld(f.type==='text'?'Text':'Name',name), fld('Notes',note),
     fld('Layer',chips(S.data.layers.map(l=>[l.id,l.name]),layerOf(f).id,v=>{ f.layer=v; ch(); })),
     fld('Color',swatches(f.color||null,v=>{ if(v) f.color=v; else delete f.color; ch(); },layerOf(f).color)),
